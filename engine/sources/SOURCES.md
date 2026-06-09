@@ -4,26 +4,33 @@ Living doc. Pick sources deliberately instead of buying the first list someone p
 Score each on **cost · coverage (NE Ohio + verticals) · API quality · have-key-yet**.
 Status: `🔲 to-evaluate` · `🟡 testing` · `🟢 wired` · `⛔ rejected`.
 
-The spine of the whole engine is the **website evaluation** (PageSpeed/Lighthouse).
-It's the one source that does triple duty: finds who's hurting, scores them, and
-writes the personalized outreach reason. Prioritize getting that one solid first.
+**Architecture (settled 2026-06-08):** discovery lives in **Clay**, not in the engine.
+Clay finds ~50k firms matching ICP and enriches them for FREE — domain, LinkedIn URL,
+and a PageSpeed score (via Google auth). The engine ingests that rich payload and owns
+**scoring, routing, and the attribution scoreboard** — the parts nothing off-the-shelf does.
+
+In-house PageSpeed (`pagespeed.py`) is a **fallback**, not the spine: it evaluates
+domains that arrive WITHOUT a Clay score (the "run any list through the machine"
+feature). No token tax — it's a REST call, not an LLM.
 
 ---
 
-## Layer 1 — Firmographic / list-building (find net-new accounts)
+## Layer 1 — Firmographic / list-building (find net-new accounts) → **CLAY**
 
-| Source | Provides | Cost | NE-OH + vertical coverage | Status | Notes |
-|---|---|---|---|---|---|
-| Google Places API | local businesses by keyword+geo | $ per call, generous free tier | strong on local SMB | 🔲 | best fit for home-services/legal/healthcare local SMB; the natural default |
-| Apollo.io | B2B contacts + firmographics | $$ seat-based | strong B2B, thinner on hyperlocal | 🔲 | good for industrial/B2B + contact-level; has export API |
-| People Data Labs | firmographic enrichment | $$ per record | broad | 🔲 | enrichment more than discovery |
-| Ohio SOS new-business filings | newly registered businesses | free (public) | OH-only, all verticals | 🔲 | pure trigger source — brand-new = needs everything |
-
-## Layer 2 — Buying signal: site quality ⭐ (the spine)
+Clay is the funnel. It does discovery + free enrichment; the engine ingests its export.
 
 | Source | Provides | Cost | Coverage | Status | Notes |
 |---|---|---|---|---|---|
-| Google PageSpeed / Lighthouse API | core-web-vitals score per domain | free, rate-limited | any public site | 🔲 | **build this first** — IS the "free website evaluation" automated |
+| **Clay** | domain + LinkedIn + PageSpeed score, ~50k firms by ICP | credits for firmographic pull; PageSpeed enrich FREE (Google auth) | strong, ICP-targetable | 🟡 | **the funnel.** Danny has a POC. Export = engine's primary input |
+| Apollo / PDL / Places | (available *inside* Clay as providers) | — | — | — | reach these via Clay, not as separate engine sources |
+| Ohio SOS new-business filings | newly registered businesses | free (public) | OH-only | 🔲 | trigger source; could feed Clay or the engine directly |
+
+## Layer 2 — Buying signal: site quality (comes free from Clay)
+
+| Source | Provides | Cost | Coverage | Status | Notes |
+|---|---|---|---|---|---|
+| **Clay PageSpeed enrichment** | mobile perf score per domain | FREE w/ Google auth | any public site | 🟡 | primary — arrives in the export, no engine call |
+| In-house `pagespeed.py` | mobile perf score per domain | free, rate-limited | any public site | 🟢 | **fallback** for non-Clay lists; built + tested |
 | BuiltWith / Wappalyzer | tech stack per domain | $$ / freemium | any public site | 🔲 | detects no-GA, old CMS, no ad pixels = neglect signals |
 
 ## Layer 3 — Buying signal: SEO / ads gap

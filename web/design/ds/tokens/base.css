@@ -1,0 +1,63 @@
+/* ============================================================
+   Sixth City Marketing — Base element defaults
+   Brand baseline applied to bare HTML elements.
+   ============================================================ */
+:root {
+  color-scheme: light;
+  --tap-transition: 120ms cubic-bezier(.4,0,.2,1); /* @kind other */
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--lh-normal);
+  color: var(--text-body);
+  background: var(--surface-page);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, h5 {
+  font-family: var(--font-display);
+  color: var(--text-strong);
+  font-weight: var(--fw-extra);
+  line-height: var(--lh-heading);
+  letter-spacing: var(--ls-tight);
+  margin: 0 0 0.5em;
+  text-wrap: balance;
+}
+h1 { font-size: var(--text-4xl); font-weight: var(--fw-black); letter-spacing: var(--ls-tighter); }
+h2 { font-size: var(--text-3xl); }
+h3 { font-size: var(--text-2xl); }
+h4 { font-size: var(--text-xl); }
+
+p { margin: 0 0 1em; text-wrap: pretty; }
+
+a { color: var(--text-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* Athletic overline — echoes the logo's condensed block lettering */
+.scm-overline {
+  font-family: var(--font-condensed);
+  font-weight: var(--fw-bold);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-overline);
+  font-size: var(--text-sm);
+  color: var(--coral-600);
+}
+
+/* Big condensed stat number */
+.scm-stat {
+  font-family: var(--font-condensed);
+  font-weight: var(--fw-extra);
+  line-height: 1;
+  letter-spacing: var(--ls-tight);
+  color: var(--text-strong);
+}
+
+::selection { background: var(--coral-200); color: var(--ink-900); }
+
+:focus-visible { outline: none; box-shadow: var(--ring); border-radius: var(--radius-sm); }

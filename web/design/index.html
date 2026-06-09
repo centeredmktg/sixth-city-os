@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pipeline Engine — Sixth City Marketing</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="ds/styles.css" />
+<style>
+  html, body { margin: 0; height: 100%; background: var(--surface-page); }
+  #pe-root { height: 100vh; }
+  /* loading splash */
+  #boot { position: fixed; inset: 0; display: grid; place-items: center; background: var(--ink-700); z-index: 100; transition: opacity .3s; }
+  #boot.gone { opacity: 0; pointer-events: none; }
+  #boot img { width: 168px; opacity: .9; }
+</style>
+</head>
+<body>
+<div id="boot"><img src="ds/assets/logo-knockout.png" alt="Sixth City Marketing" /></div>
+<div id="pe-root"></div>
+
+<!-- React + Babel (pinned) -->
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<!-- Guard: the compiled DS bundle embeds the marketing-site kit, which auto-mounts
+     into #root on load. We render the Pipeline Engine into #pe-root, so neutralize
+     any stray createRoot targeting #root (or a missing node) before the bundle runs. -->
+<script>
+(function () {
+  const real = ReactDOM.createRoot.bind(ReactDOM);
+  const noop = { render() {}, unmount() {} };
+  ReactDOM.createRoot = function (container) {
+    if (!container || container.id === "root") return noop;
+    return real(container);
+  };
+})();
+</script>
+
+<!-- Sixth City Marketing — compiled design-system bundle -->
+<script src="ds/_ds_bundle.js"></script>
+
+<!-- Pipeline Engine app (order matters; communicate via window.PE) -->
+<script type="text/babel" src="app/icons.jsx"></script>
+<script type="text/babel" src="app/data.jsx"></script>
+<script type="text/babel" src="app/shell.jsx"></script>
+<script type="text/babel" src="app/queue.jsx"></script>
+<script type="text/babel" src="app/triage.jsx"></script>
+<script type="text/babel" src="app/scoreboard.jsx"></script>
+<script type="text/babel" src="app/detail.jsx"></script>
+<script type="text/babel" src="app/accounts.jsx"></script>
+<script type="text/babel" src="app/app.jsx"></script>
+
+<script>
+  // Hold the splash until BOTH React has mounted AND webfonts are ready, so the
+  // user never sees the fallback-font reflow (which briefly mis-wraps headings).
+  (function () {
+    const boot = document.getElementById("boot");
+    const root = document.getElementById("pe-root");
+    const mounted = new Promise((res) => {
+      const obs = new MutationObserver(() => {
+        if (root.childElementCount > 0) { obs.disconnect(); res(); }
+      });
+      obs.observe(root, { childList: true });
+    });
+    const fonts = (document.fonts && document.fonts.ready) || Promise.resolve();
+    const done = () => { boot.classList.add("gone"); setTimeout(() => boot.remove(), 400); };
+    Promise.all([mounted, fonts]).then(done);
+    setTimeout(done, 6000);
+  })();
+</script>
+</body>
+</html>

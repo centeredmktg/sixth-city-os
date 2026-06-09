@@ -23,18 +23,33 @@ from engine.models import Account, Route, RouteDecision
 # Timing is the gate. Tune against real close data.
 IN_MARKET_TIMING = 55.0     # at/above this, they're worth the closer's day NOW
 VIABLE_FIT = 60.0           # good-enough fit to bother nurturing for later
+MIN_AGREEING_SIGNALS = 2    # Blueprint PQS rule: a pain qualifies only when ≥2 sources agree
+
+
+def pain_qualified(account: Account) -> bool:
+    """Blueprint two-source-agreement rule: a prospect is pain-qualified only when
+    at least two DISTINCT signal types corroborate the pain. One signal is noise;
+    two agreeing signals is a documented gap worth the closer's time."""
+    return len({s.kind for s in account.signals}) >= MIN_AGREEING_SIGNALS
 
 
 def recommend(account: Account) -> RouteDecision:
-    """Pure function: score -> routing recommendation. Timing-first."""
+    """Pure function: score -> routing recommendation. Timing-first, then the
+    two-source-agreement gate (a single signal can't send someone to the closer)."""
     s = account.score
     if s is None:
         return RouteDecision(Route.HOLD, "unscored")
 
     if s.timing >= IN_MARKET_TIMING:
+        if pain_qualified(account):
+            return RouteDecision(
+                Route.CLOSER,
+                f"in-market (timing {s.timing:.0f}) + {len({sig.kind for sig in account.signals})} "
+                f"agreeing signals — pain-qualified",
+            )
         return RouteDecision(
-            Route.CLOSER,
-            f"in-market now (timing {s.timing:.0f} ≥ {IN_MARKET_TIMING:.0f})",
+            Route.NURTURE,
+            f"in-market (timing {s.timing:.0f}) but only one signal — needs corroboration before outreach",
         )
     if s.fit >= VIABLE_FIT:
         return RouteDecision(

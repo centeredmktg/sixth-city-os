@@ -19,23 +19,33 @@ from typing import Optional
 
 
 class Vertical(str, Enum):
-    """The verticals Sixth City already wins in (design spec §4)."""
+    """The verticals Sixth City already wins in (design spec §4). UNKNOWN covers
+    arbitrary lists fed through the eval machine that didn't arrive pre-tagged."""
     INDUSTRIAL_B2B = "industrial_b2b"
     HOME_SERVICES = "home_services"
     HEALTHCARE = "healthcare"
     LEGAL = "legal"
     ECOMMERCE = "ecommerce"
+    UNKNOWN = "unknown"
 
 
 class SignalKind(str, Enum):
     """Why an account looks like a fit/timing match. Drives both the score AND
     the personalized outreach reason — one signal, two jobs."""
-    SITE_QUALITY = "site_quality"       # bad/slow/non-mobile site (the website-eval spine)
-    SEO_GAP = "seo_gap"                 # low organic visibility
+    SITE_QUALITY = "site_quality"       # bad/slow/non-mobile site (PageSpeed)
+    # --- SEO gaps: the bespoke-OS surface that speaks an SEO agency's language ---
+    SEO_GAP = "seo_gap"                 # low overall organic visibility
+    KEYWORD_GAP = "keyword_gap"         # competitors rank for high-intent terms they don't
+    LOCAL_SEO_GAP = "local_seo_gap"     # weak/missing Google Business Profile, no local pack
+    BACKLINK_GAP = "backlink_gap"       # thin/declining referring domains
+    CONTENT_GAP = "content_gap"         # thin/missing service pages
+    AI_CITATION_GAP = "ai_citation_gap" # ranks on Google but uncited by AI answer engines (flagship)
+    ADS_STALE = "ads_stale"             # stale/single ad creative pointing at homepage
+    REVIEW_VELOCITY = "review_velocity" # losing the local pack on review recency/velocity
+    # --- timing/intent triggers ---
     ADS_ACTIVE = "ads_active"           # already spending on ads = budget exists
     HIRING_MARKETING = "hiring_marketing"
     NEW_LOCATION = "new_location"
-    REVIEW_VELOCITY = "review_velocity"
 
 
 class Stage(str, Enum):
@@ -97,12 +107,15 @@ class Account:
     push job against HubSpot's book."""
     name: str
     domain: str
-    vertical: Vertical
+    vertical: Vertical = Vertical.UNKNOWN
+    linkedin_url: str = ""        # Clay's free payload carries this — feeds personalization
     city: str = ""
     state: str = "OH"
+    extra: dict = field(default_factory=dict)   # other Clay firmographic fields, kept raw
     signals: list[Signal] = field(default_factory=list)
     score: Optional["Score"] = None
     route: Optional["RouteDecision"] = None
+    offer: Optional["Offer"] = None
     stage: Stage = Stage.DISCOVERED
     hubspot_id: Optional[str] = None
     discovered_by: str = ""     # source registry name — provenance for attribution
@@ -117,6 +130,20 @@ class Score:
     total: float                # 0-100 composite
     band: str                   # "A" / "B" / "C" / "R" (ABCR)
     rationale: str = ""
+
+
+@dataclass
+class Offer:
+    """A Permissionless Value Prop (PVP) or Pain-Qualified Segment (PQS) message,
+    built from a named Blueprint data recipe. The insight is standalone-valuable —
+    quantified, names a competitor, and asks only for a one-word reply (never a
+    meeting). Per Blueprint GTM: the PVP IS the deliverable, so outreach = product."""
+    recipe: str                 # e.g. "AI Answer Gap Report"
+    kind: str                   # "PVP" | "PQS"
+    data_recipe: str            # the public-data sources used (shown for credibility)
+    subject: str
+    body: str
+    cta: str                    # the one-word reply ask, e.g. 'reply "send it"'
 
 
 @dataclass

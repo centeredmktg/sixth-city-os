@@ -1,0 +1,24 @@
+<!-- @dsCard group="Spacing" viewport="760x150" name="Radii" subtitle="xs 4 → 2xl 30, full" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  html,body{margin:0;}
+  body{font-family:var(--font-sans);background:var(--surface);color:var(--text-primary);padding:24px 28px;display:flex;gap:20px;align-items:flex-end;flex-wrap:wrap;}
+  .item{display:flex;flex-direction:column;gap:8px;align-items:center;}
+  .box{width:64px;height:48px;background:var(--surface-subtle);border:1.5px solid var(--brand);border-bottom:none;border-right:none;}
+  .tag{font-family:var(--font-mono);font-size:10px;color:var(--text-secondary);}
+</style>
+</head>
+<body>
+  <div class="item"><span class="box" style="border-top-left-radius:var(--radius-xs)"></span><span class="tag">xs · 4</span></div>
+  <div class="item"><span class="box" style="border-top-left-radius:var(--radius-sm)"></span><span class="tag">sm · 8</span></div>
+  <div class="item"><span class="box" style="border-top-left-radius:var(--radius-md)"></span><span class="tag">md · 12</span></div>
+  <div class="item"><span class="box" style="border-top-left-radius:var(--radius-lg)"></span><span class="tag">lg · 16</span></div>
+  <div class="item"><span class="box" style="border-top-left-radius:var(--radius-xl)"></span><span class="tag">xl · 22</span></div>
+  <div class="item"><span class="box" style="border-top-left-radius:var(--radius-2xl)"></span><span class="tag">2xl · 30</span></div>
+  <div class="item"><span class="box" style="border-radius:var(--radius-full);width:48px;border:1.5px solid var(--brand)"></span><span class="tag">full</span></div>
+</body>
+</html>

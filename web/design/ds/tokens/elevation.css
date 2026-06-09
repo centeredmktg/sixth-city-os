@@ -1,0 +1,33 @@
+/* ============================================================
+   Sixth City Marketing — Radii, borders & elevation
+   Sturdy, squared-off geometry (small-to-medium radii).
+   Warm-tinted soft shadows.
+   ============================================================ */
+:root {
+  /* radii — squared & sturdy, not pill-heavy */
+  --radius-xs:  3px;
+  --radius-sm:  5px;
+  --radius-md:  8px;    /* default control / card */
+  --radius-lg:  12px;
+  --radius-xl:  16px;
+  --radius-2xl: 22px;
+  --radius-pill: 999px;
+
+  /* border widths */
+  --border-w:    1px;
+  --border-w-2:  2px;
+
+  /* warm-tinted shadows (brown-charcoal base) */
+  --shadow-xs: 0 1px 1px rgba(52, 38, 24, 0.05);
+  --shadow-sm: 0 1px 2px rgba(52, 38, 24, 0.06), 0 1px 3px rgba(52, 38, 24, 0.08);
+  --shadow-md: 0 2px 4px rgba(52, 38, 24, 0.05), 0 6px 16px rgba(52, 38, 24, 0.09);
+  --shadow-lg: 0 4px 8px rgba(52, 38, 24, 0.06), 0 16px 36px rgba(52, 38, 24, 0.12);
+  --shadow-xl: 0 24px 60px rgba(52, 38, 24, 0.18);
+
+  /* inner shadow for inset surfaces */
+  --shadow-inset: inset 0 1px 2px rgba(52, 38, 24, 0.07);
+
+  /* signature warm hero gradient (orange -> coral) */
+  --gradient-hero: linear-gradient(135deg, #F0814E 0%, #E0532E 55%, #D9433C 100%); /* @kind color */
+  --gradient-ember: linear-gradient(120deg, var(--orange-500), var(--coral-500)); /* @kind color */
+}

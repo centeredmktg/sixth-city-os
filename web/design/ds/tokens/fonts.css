@@ -1,0 +1,18 @@
+/* ============================================================
+   Sixth City Marketing — Fonts
+   Webfonts loaded from Google Fonts CDN (online-only).
+   NOTE: The logo wordmark uses a custom athletic/varsity block
+   face that is NOT bundled — it lives only in the logo art.
+   Body/UI = Mulish (warm humanist sans, substitution for the
+   site's heading face). Condensed display = Saira Condensed
+   (echoes the athletic logo for stats + overlines).
+   Mono = IBM Plex Mono (data, scores, IDs).
+   ============================================================ */
+@import url('https://fonts.googleapis.com/css2?family=Mulish:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,600&family=Saira+Condensed:wght@500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --font-sans: 'Mulish', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Mulish', system-ui, sans-serif;          /* big friendly headings */
+  --font-condensed: 'Saira Condensed', 'Mulish', sans-serif; /* stats + overlines (athletic) */
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+}

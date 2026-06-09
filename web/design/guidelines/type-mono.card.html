@@ -1,0 +1,23 @@
+<!-- @dsCard group="Type" viewport="760x150" name="Mono — eyebrows, scores, labels" subtitle="Geist Mono. Tracked-out uppercase overlines & data." -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  html,body{margin:0;}
+  body{font-family:var(--font-mono);background:var(--surface);color:var(--text-primary);padding:24px 28px;display:flex;gap:40px;align-items:center;flex-wrap:wrap;}
+  .eyebrow{font-size:11px;letter-spacing:var(--tracking-caps);text-transform:uppercase;color:var(--text-brand);}
+  .num{font-size:13px;color:var(--text-muted);}
+  .score{font-size:40px;font-weight:600;color:var(--text-primary);letter-spacing:-0.02em;}
+  .score small{font-size:16px;color:var(--text-muted);font-weight:500;}
+  .stack{display:flex;flex-direction:column;gap:8px;}
+  .lbl{font-size:10px;color:var(--text-muted);letter-spacing:.06em;}
+</style>
+</head>
+<body>
+  <div class="stack"><span class="eyebrow">How it works</span><span class="lbl">eyebrow / overline</span></div>
+  <div class="stack"><span class="num">01 · 02 · 03</span><span class="lbl">step markers</span></div>
+  <div class="stack"><span class="score">4.6<small>/5</small></span><span class="lbl">scores & data</span></div>
+</body>
+</html>

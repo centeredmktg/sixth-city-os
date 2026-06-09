@@ -1,0 +1,39 @@
+<!-- @dsCard group="Brand" viewport="760x220" name="The 360° ring motif" subtitle="Concentric rings & arc — the recurring graphic language" -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="stylesheet" href="../styles.css" />
+<style>
+  html,body{margin:0;}
+  body{font-family:var(--font-sans);background:var(--gradient-dark);color:#fff;padding:24px 28px;display:flex;gap:34px;align-items:center;}
+  .ring-stack{position:relative;width:140px;height:140px;flex:none;display:grid;place-items:center;}
+  .r{position:absolute;border-radius:50%;border:1.5px solid rgba(123,179,166,0.35);}
+  .r1{width:140px;height:140px;}
+  .r2{width:104px;height:104px;}
+  .arc{position:absolute;width:140px;height:140px;border-radius:50%;
+    background:conic-gradient(from 0deg, #4a9082, #7bb3a6 78%, transparent 78%);
+    -webkit-mask:radial-gradient(circle 58px at 50% 50%, transparent 99%, #000 100%);
+    mask:radial-gradient(circle 58px at 50% 50%, transparent 99%, #000 100%);}
+  .core{font-family:var(--font-brand);font-weight:600;font-size:30px;
+    background:var(--gradient-brand);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  .copy{max-width:42ch;}
+  .eyebrow{font-family:var(--font-mono);font-size:10px;letter-spacing:var(--tracking-caps);text-transform:uppercase;color:#7bb3a6;margin-bottom:8px;}
+  h4{font-family:var(--font-serif);font-weight:500;font-size:24px;margin:0 0 8px;line-height:1.2;}
+  p{margin:0;font-size:13.5px;line-height:var(--leading-normal);color:rgba(255,255,255,0.72);}
+</style>
+</head>
+<body>
+  <div class="ring-stack">
+    <span class="r r1"></span>
+    <span class="r r2"></span>
+    <span class="arc"></span>
+    <span class="core">360°</span>
+  </div>
+  <div class="copy">
+    <div class="eyebrow">Brand motif</div>
+    <h4>Feedback comes full circle.</h4>
+    <p>The circle is the brand's recurring graphic: the logo's “0” ring, score donuts, arc progress, and concentric section markers. Use it for emphasis — never as noisy decoration.</p>
+  </div>
+</body>
+</html>

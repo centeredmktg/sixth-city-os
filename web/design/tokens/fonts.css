@@ -1,0 +1,10 @@
+/* 360 — Webfonts
+ * Sans:  Hanken Grotesk  (UI, body, most headings) — geometric-humanist, close match to the rounded "360" wordmark
+ * Serif: Newsreader       (editorial display, pull quotes) — calm, premium, literary
+ * Mono:  Geist Mono       (data labels, scores, system text)
+ *
+ * NOTE: Loaded from Google Fonts. The official brand typefaces were not provided;
+ * these are on-brand substitutions. Replace with the real font files if available
+ * and update the @font-face/src targets here.
+ */
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Fredoka:wght@500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');

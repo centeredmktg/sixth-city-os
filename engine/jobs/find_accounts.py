@@ -1,26 +1,26 @@
 """
-JOB 1 (cron): discover net-new accounts in target verticals + geo, attach signals.
+JOB 1 (cron): ingest accounts from upstream sources + attach buying signals.
 
-Loop step 1+2 of the software summary: "finds the right accounts automatically"
-and attaches the buying signals that later drive scoring + outreach.
+"Find" really means INGEST now: Clay does the discovery (find ~50k firms, enrich
+free), and this pulls that payload in. Signal sources then attach buying signals —
+the Clay site-quality score directly, or the PageSpeed fallback for un-scored
+domains. The signal layer is source-agnostic, so any list flows through identically.
 """
 
 from __future__ import annotations
 
-from engine.config import CONFIG
-from engine.models import Account, Vertical
+from engine.models import Account
 from engine.modules import trigger_scanner
 from engine.sources import registry
 
 
 def run() -> list[Account]:
     found: list[Account] = []
-    for vertical in Vertical:
-        for state in CONFIG.target_states:
-            for src in registry.account_sources():
-                found.extend(src.discover(vertical, state))
+    for src in registry.account_sources():
+        found.extend(src.discover())
 
-    # Attach signals from every signal-source (PageSpeed spine, etc.)
+    # Attach signals. Clay's score comes free; PageSpeed fallback fires only for
+    # accounts still missing a site-quality signal (see PageSpeedSource.enrich).
     for account in found:
         for src in registry.signal_sources():
             account.signals.extend(src.enrich(account))
@@ -30,7 +30,7 @@ def run() -> list[Account]:
     for account in found:
         account.signals.extend(triggers.get(account.domain, []))
 
-    print(f"[find] discovered {len(found)} accounts, "
+    print(f"[ingest] {len(found)} accounts, "
           f"{sum(len(a.signals) for a in found)} signals")
     return found
 

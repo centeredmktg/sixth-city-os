@@ -1,97 +1,31 @@
 """
-Pluggable data-source layer.
+Source registry — the live list of data sources the ingest/score jobs iterate.
 
-Every source (Google Places, PageSpeed, Apollo, ...) implements one interface so
-the find/score jobs never care where an account or signal came from. Add a
-source by subclassing DataSource and registering it — nothing downstream changes.
+Add a source: write a module under engine/sources/ that subclasses DataSource,
+then register an instance here. Nothing downstream changes.
 
-Stub status: two illustrative sources return fake-but-shaped data so the loop
-runs end-to-end. See SOURCES.md for the real to-find list + selection scorecard.
+  - clay      : REAL primary funnel — ingests Clay's free payload
+                (domain + LinkedIn + PageSpeed score). No API calls, no credits.
+  - pagespeed : fallback eval — fires only for domains that arrive WITHOUT a
+                score (the "run any list through the machine" feature).
+
+Discovery (find ~50k firms) lives in Clay, not here — it's Clay's superpower and
+credit-cheap. The engine owns scoring, routing, and the attribution scoreboard.
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
+from engine.sources.base import DataSource
+from engine.sources.clay_payload import ClayPayloadSource
+from engine.sources.pagespeed import PageSpeedSource
+from engine.sources.public_signals import PublicSignalsSource
+from engine.sources.seo_gap import SeoGapSource
 
-from engine.models import Account, Signal, SignalKind, Vertical
-
-
-class DataSource(ABC):
-    """One external data source. Either discovers accounts, enriches them with
-    signals, or both."""
-
-    name: str = "unnamed"
-    provides_accounts: bool = False   # can it surface net-new accounts?
-    provides_signals: bool = False    # can it attach buying signals?
-
-    @abstractmethod
-    def discover(self, vertical: Vertical, state: str) -> list[Account]:
-        """Return candidate accounts. No-op for signal-only sources."""
-        ...
-
-    @abstractmethod
-    def enrich(self, account: Account) -> list[Signal]:
-        """Return buying signals for an account. No-op for list-only sources."""
-        ...
-
-
-class GooglePlacesStub(DataSource):
-    """Firmographic / list-building: local businesses by vertical + geo.
-    Real version hits the Places API. Stub returns one fake account."""
-
-    name = "google_places"
-    provides_accounts = True
-    provides_signals = False
-
-    def discover(self, vertical: Vertical, state: str) -> list[Account]:
-        # TODO: real Places API call (text search by vertical keyword + region)
-        return [
-            Account(
-                name="Buckeye Industrial Supply",
-                domain="buckeyeindustrial.example",
-                vertical=vertical,
-                city="Cleveland",
-                state=state,
-                discovered_by=self.name,
-            )
-        ]
-
-    def enrich(self, account: Account) -> list[Signal]:
-        return []
-
-
-class PageSpeedStub(DataSource):
-    """The spine: automates Sixth City's 'free website evaluation'. A bad score
-    is simultaneously the find-signal, the score input, and the outreach reason.
-    Real version hits the Google PageSpeed/Lighthouse API."""
-
-    name = "pagespeed"
-    provides_accounts = False
-    provides_signals = True
-
-    def discover(self, vertical: Vertical, state: str) -> list[Account]:
-        return []
-
-    def enrich(self, account: Account) -> list[Signal]:
-        # TODO: real Lighthouse run against account.domain
-        fake_mobile_score = 34  # 0-100; low = hurting = in-market
-        return [
-            Signal(
-                kind=SignalKind.SITE_QUALITY,
-                source=self.name,
-                value=fake_mobile_score,
-                detail=(
-                    f"Mobile site scores {fake_mobile_score}/100 on core web "
-                    f"vitals — slow load is leaking conversions."
-                ),
-            )
-        ]
-
-
-# The live registry. Find/score jobs iterate this.
 REGISTRY: list[DataSource] = [
-    GooglePlacesStub(),
-    PageSpeedStub(),
+    ClayPayloadSource(),     # primary: accounts + site-quality signal from Clay's export
+    PageSpeedSource(),       # fallback: site-quality for un-scored domains
+    SeoGapSource(),          # SEO-gap signals (keyword/local/backlink/content)
+    PublicSignalsSource(),   # Blueprint moat: AI-citation gap, stale ads, review velocity
 ]
 
 

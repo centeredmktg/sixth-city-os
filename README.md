@@ -15,12 +15,16 @@ find_accounts  ->  score_accounts  ->  push_to_hubspot  ->  attribution dashboar
   (sources)         (ABCR)              (HubSpot + copy)      (the scoreboard)
 ```
 
-| Step | Module | Existing Centered skill behind it |
+**Discovery lives in Clay, not here.** Clay finds ~50k ICP firms and enriches them
+free (domain + LinkedIn + PageSpeed score). The engine ingests that and owns the
+parts nothing off-the-shelf does: scoring, routing, attribution.
+
+| Step | Module | Notes |
 |---|---|---|
-| Find | `engine/jobs/find_accounts.py`, `engine/sources/` | `trigger-scanner`, `intel` |
-| Score | `engine/scoring/abcr.py` | `lead-scoring-abcr` |
-| Push | `engine/jobs/push_to_hubspot.py`, `engine/modules/` | `draft-cold-email`, `csv-lead-enrichment` |
-| Route | (HubSpot sequences) | `handle-replies`, `champ-meeting-qualifier` |
+| Ingest | `engine/jobs/find_accounts.py`, `engine/sources/clay_payload.py` | reads Clay's free payload; `pagespeed.py` = fallback for non-Clay lists |
+| Score | `engine/scoring/abcr.py` | `lead-scoring-abcr` — timing-weighted |
+| Route | `engine/jobs/route_accounts.py`, `engine/routing.py` | timing-first + HITL gate |
+| Push | `engine/jobs/push_to_hubspot.py`, `engine/modules/` | `draft-cold-email` (the only token step — gated to closer-bound), `csv-lead-enrichment` |
 | Scoreboard | `engine/attribution/dashboard.py` | **net-new build** — the trust layer |
 
 ## Run it
@@ -39,12 +43,12 @@ python run.py          # dry mode: walks the loop, writes nothing real
   adapters (templated, not yet calling the real skills).
 - **To find:** the data sources — see `engine/sources/SOURCES.md`.
 
-## Build order (from SOURCES.md)
+## Build order
 
-1. **HubSpot access re-grant** — nothing ships without the scoreboard.
-2. **PageSpeed/Lighthouse** — the spine; automates the "free website evaluation".
-3. **Google Places** — discovery default for local SMB.
-4. Then ads-transparency + Ohio SOS filings (free) before paying for SEMrush/Apollo.
+1. **HubSpot access re-grant** (tomorrow) — nothing ships without the scoreboard.
+2. **Clay export → ingest** — wire `clay_payload.py` to a real Clay CSV/JSON export.
+3. **Scoreboard against real HubSpot** — the net-new owned piece.
+4. In-house `pagespeed.py` fallback already built + tested for arbitrary lists.
 
 ## Open decision for Danny
 

@@ -15,17 +15,21 @@ starting point — tune them against real Sixth City close data once it exists.
 
 from __future__ import annotations
 
+from engine import geo
 from engine.models import Account, Score, SignalKind
 
 
 # --- Fit: does this account look like Sixth City's kind of client? -----------
 def _fit(account: Account) -> float:
-    """0-100. Stub: vertical match is the only fit input we have pre-enrichment.
-    Real version factors employee count, revenue band, locale tightness."""
-    # Every account here was discovered against a target vertical, so baseline high.
-    base = 70.0
+    """0-100. Pre-enrichment fit: vertical match + locale. Real version adds
+    employee count, revenue band, locale tightness."""
+    base = 55.0
+    if account.vertical != account.vertical.UNKNOWN:
+        base += 12  # matches a vertical Sixth City wins in
     if account.state in ("OH",):
-        base += 15  # local to Sixth City's six-city footprint
+        base += 10  # in the six-city footprint
+    if account.linkedin_url:
+        base += 5   # reachable decision-makers
     return min(base, 100.0)
 
 
@@ -34,19 +38,38 @@ def _timing(account: Account) -> float:
     """0-100 from buying signals. A bad website + active ad spend = very warm."""
     if not account.signals:
         return 0.0
-    points = 0.0
-    for s in account.signals:
+
+    def contribution(s) -> float:
         if s.kind == SignalKind.SITE_QUALITY:
-            points += (100 - s.value) * 0.8   # worse site = warmer
-        elif s.kind == SignalKind.ADS_ACTIVE:
-            points += 60                       # budget already exists
-        elif s.kind == SignalKind.SEO_GAP:
-            points += 40
-        elif s.kind == SignalKind.HIRING_MARKETING:
-            points += 50
-        else:
-            points += s.value * 0.3
-    return min(points, 100.0)
+            return (100 - s.value) * 0.8   # worse site = warmer
+        if s.kind == SignalKind.AI_CITATION_GAP:
+            return 70                       # flagship moat pain — competitors won't surface this
+        if s.kind == SignalKind.ADS_STALE:
+            return 55                       # active spend + obvious leak = warm + budget exists
+        if s.kind == SignalKind.REVIEW_VELOCITY:
+            return 45
+        if s.kind == SignalKind.ADS_ACTIVE:
+            return 60                       # budget already exists
+        if s.kind == SignalKind.LOCAL_SEO_GAP:
+            return 45                       # missing GBP = obvious quick win
+        if s.kind == SignalKind.KEYWORD_GAP:
+            return min(s.value, 50) * 0.7   # big keyword gap = lots of upside
+        if s.kind == SignalKind.SEO_GAP:
+            return 40
+        if s.kind == SignalKind.BACKLINK_GAP:
+            return 30
+        if s.kind == SignalKind.CONTENT_GAP:
+            return 25
+        if s.kind == SignalKind.HIRING_MARKETING:
+            return 50
+        return s.value * 0.3
+
+    # Diminishing returns: the strongest signal counts full, each next one less.
+    # Many gaps still mean a warmer lead, but stacking doesn't trivially max out —
+    # which keeps scores spread and believable instead of a wall of 100s.
+    contribs = sorted((contribution(s) for s in account.signals), reverse=True)
+    timing = sum(c * (0.55 ** i) for i, c in enumerate(contribs))
+    return min(timing, 100.0)
 
 
 # --- Composite + band: Danny's call ------------------------------------------
@@ -72,12 +95,18 @@ def _band(total: float) -> str:
 def score(account: Account) -> Score:
     fit = _fit(account)
     timing = _timing(account)
-    total = fit * FIT_WEIGHT + timing * TIMING_WEIGHT
-    band = _band(total)
+    base = fit * FIT_WEIGHT + timing * TIMING_WEIGHT
+
+    # Office-hub proximity boost: accounts near a Sixth City hub score higher
+    # (local advantage = higher fit + close). Neutral (1.0) until hubs are set.
+    prox = geo.proximity_weight(account)
+    total = min(100.0, base * prox)
+
+    prox_note = f" × proximity {prox:.2f}" if prox != 1.0 else ""
     return Score(
         fit=round(fit, 1),
         timing=round(timing, 1),
         total=round(total, 1),
-        band=band,
-        rationale=f"fit {fit:.0f} × {FIT_WEIGHT} + timing {timing:.0f} × {TIMING_WEIGHT}",
+        band=_band(total),
+        rationale=f"fit {fit:.0f} × {FIT_WEIGHT} + timing {timing:.0f} × {TIMING_WEIGHT}{prox_note}",
     )
