@@ -94,10 +94,16 @@ function computeScore(acct) {
 
 /* ---- Routing (engine/routing.py) ---- */
 const IN_MARKET_TIMING = 55.0, VIABLE_FIT = 60.0;
-function recommendRoute(score) {
+function recommendRoute(score, acct) {
   if (!score) return { recommended: "hold", rationale: "unscored" };
-  if (score.timing >= IN_MARKET_TIMING)
-    return { recommended: "closer", rationale: `in-market now (timing ${score.timing.toFixed(0)} ≥ ${IN_MARKET_TIMING.toFixed(0)})` };
+  if (score.timing >= IN_MARKET_TIMING) {
+    // Blueprint two-source gate (engine/routing.py): in-market alone isn't enough —
+    // a single signal is noise. The closer's day is only spent on corroborated pain.
+    const kinds = acct ? new Set(acct.signals.map((s) => s.kind)).size : 0;
+    if (acct && painQualified(acct))
+      return { recommended: "closer", rationale: `in-market (timing ${score.timing.toFixed(0)}) + ${kinds} agreeing signals — pain-qualified` };
+    return { recommended: "nurture", rationale: `in-market (timing ${score.timing.toFixed(0)}) but only one signal — needs corroboration before outreach` };
+  }
   if (score.fit >= VIABLE_FIT)
     return { recommended: "nurture", rationale: `good fit (${score.fit.toFixed(0)}) but cold (timing ${score.timing.toFixed(0)}) — marketing nurtures` };
   if (score.fit >= VIABLE_FIT * 0.6)
@@ -184,7 +190,7 @@ function selectOffer(a) {
    ============================================================ */
 function mk(r) {
   const score = computeScore(r);
-  const rec = recommendRoute(score);
+  const rec = recommendRoute(score, r);
   const route = {
     recommended: rec.recommended, rationale: rec.rationale,
     confirmed: r.confirmed ?? false,
