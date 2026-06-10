@@ -25,20 +25,22 @@ class OfficeHub:
     city: str
     lat: float
     lon: float
+    address: str = ""   # canonical local-SEO ranking address for this hub
 
 
-# TODO(Danny): fill Sixth City's six real office locations (city + lat/lon).
-# These anchor proximity scoring. Coarse city-name match works the moment you add
-# the city names; haversine distance kicks in once lat/lon are set. Until this list
-# is populated, proximity_weight() returns 1.0 and changes nothing.
-#
-# Example:
-#   OFFICE_HUBS = [
-#       OfficeHub("Cleveland", 41.4993, -81.6944),
-#       OfficeHub("Akron",     41.0814, -81.5190),
-#       ... (six total)
-#   ]
-OFFICE_HUBS: list[OfficeHub] = []
+# Sixth City's six office hubs — coordinates geocoded from the real local-SEO
+# ranking addresses. Coarse city-name match fires immediately; haversine distance
+# refines it whenever an export carries lat/lon. All six are >50mi apart, so at
+# RADIUS_MILES = 50 their proximity circles never overlap — every in-radius
+# account maps to exactly one hub.
+OFFICE_HUBS: list[OfficeHub] = [
+    OfficeHub("Cleveland",    41.50228, -81.68946, "815 Superior Ave E, Suite 1712, Cleveland, OH"),
+    OfficeHub("Columbus",     39.96349, -82.99972, "35 E Gay St, #324, Columbus, OH"),
+    OfficeHub("Pittsburgh",   40.43983, -80.00170, "239 4th Avenue, #1915, Pittsburgh, PA"),
+    OfficeHub("Indianapolis", 39.77351, -86.15571, "429 N Penn St, Suite 300H, Indianapolis, IN"),
+    OfficeHub("Chicago",      41.89292, -87.63300, "620 N La Salle St, Suite 415, Chicago, IL"),
+    OfficeHub("Nashville",    36.16397, -86.78191, "501 Union St, Suite 410, Nashville, TN"),
+]
 
 RADIUS_MILES = 50.0      # within this of a hub = local advantage (tune)
 # TODO(Danny): the boost ceiling. 1.12 = an in-radius account scores 12% higher.

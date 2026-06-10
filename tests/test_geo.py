@@ -1,6 +1,7 @@
 """
-Tests for the office-hub proximity weight. Injects hubs directly (the real list
-is a TODO for Danny) so the math is verified independent of configuration.
+Tests for the office-hub proximity weight. TestProximityWeight injects hubs
+directly so the math is verified independent of configuration; TestRealHubs
+guards the live production list itself.
 Run: python -m unittest tests.test_geo
 """
 
@@ -44,6 +45,41 @@ class TestProximityWeight(unittest.TestCase):
         w = geo.proximity_weight(near)
         self.assertGreater(w, 1.0)
         self.assertLess(w, geo.PROXIMITY_BOOST)
+
+
+class TestRealHubs(unittest.TestCase):
+    """Guards the live OFFICE_HUBS list — not the math, the configuration."""
+
+    EXPECTED_CITIES = {
+        "Cleveland", "Columbus", "Pittsburgh",
+        "Indianapolis", "Chicago", "Nashville",
+    }
+
+    def test_six_hubs_present(self):
+        self.assertEqual(len(geo.OFFICE_HUBS), 6)
+        self.assertEqual({h.city for h in geo.OFFICE_HUBS}, self.EXPECTED_CITIES)
+
+    def test_every_hub_has_an_address(self):
+        # The address is the local-SEO anchor — a hub without one is misconfigured.
+        for h in geo.OFFICE_HUBS:
+            self.assertTrue(h.address.strip(), f"{h.city} missing address")
+
+    def test_coords_are_plausible(self):
+        # Continental-US bounding box — catches a swapped/zeroed lat-lon.
+        for h in geo.OFFICE_HUBS:
+            self.assertTrue(24.0 < h.lat < 50.0, f"{h.city} lat off-continent")
+            self.assertTrue(-93.0 < h.lon < -74.0, f"{h.city} lon off-continent")
+
+    def test_hubs_do_not_overlap(self):
+        # The non-overlap invariant: every pair is >2*RADIUS_MILES apart, so each
+        # in-radius account maps to exactly one hub and min() can't double-count.
+        hubs = geo.OFFICE_HUBS
+        for i in range(len(hubs)):
+            for j in range(i + 1, len(hubs)):
+                d = geo._haversine_miles(hubs[i].lat, hubs[i].lon,
+                                         hubs[j].lat, hubs[j].lon)
+                self.assertGreater(d, 2 * geo.RADIUS_MILES,
+                                   f"{hubs[i].city} and {hubs[j].city} circles overlap")
 
 
 if __name__ == "__main__":
