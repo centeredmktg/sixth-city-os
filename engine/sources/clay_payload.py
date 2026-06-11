@@ -93,11 +93,20 @@ class ClayPayloadSource(DataSource):
                 observed_at=None,
             ))
 
-        # Signal 2 — the second agreeing signal that lets a firm pain-qualify.
-        # TODO(danny): map a second Clay-enriched column to a SignalKind so the list
-        # can clear the two-source gate. Decide: which column (e.g. "ads_active",
-        # "hiring_marketing"), what value in that column counts as the signal firing,
-        # which SignalKind it maps to, and the one-line `detail` the closer reads as
-        # the outreach reason. ~6-8 lines, mirroring the block above.
+        # Signal 2 — ADS_ACTIVE from Adyntel's ad count. Budget already committed =
+        # in-market timing, AND it's the 2nd distinct kind that clears the two-source
+        # gate (routing.MIN_AGREEING_SIGNALS). Threshold is >0; raise to >=2 if
+        # Adyntel counts one-off boosted posts you don't want pain-qualifying a firm.
+        raw_ads = row.get("ads_active")
+        if raw_ads and int(raw_ads) > 0:
+            count = int(raw_ads)
+            signals.append(Signal(
+                kind=SignalKind.ADS_ACTIVE,
+                source=self.name,
+                value=float(count),
+                detail=(f"Running {count} live paid ad(s) — budget's already committed. "
+                        f"They're buying traffic a site this slow can't convert."),
+                observed_at=None,
+            ))
 
         return signals

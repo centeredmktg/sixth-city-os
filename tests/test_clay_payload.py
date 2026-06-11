@@ -8,6 +8,7 @@ import os
 import unittest
 
 from engine.models import SignalKind, Vertical
+from engine.routing import pain_qualified
 from engine.sources.clay_payload import ClayPayloadSource
 
 FIXTURE = os.path.join(os.path.dirname(__file__), "fixtures", "clay_sample.csv")
@@ -44,10 +45,35 @@ class TestClayCsvIngestion(unittest.TestCase):
         self.assertEqual(signals[0].value, 61.0)
 
     def test_row_without_score_yields_no_clay_signal(self):
-        # Maple City has no pagespeed_mobile -> Clay emits nothing; the in-house
-        # fallback (pagespeed.py) is what would handle it for a real domain.
+        # Maple City has no pagespeed_mobile or ads_active -> Clay emits nothing; the
+        # in-house fallback (pagespeed.py) is what would handle it for a real domain.
         a = self.accounts["maplecitymovers.example"]
         self.assertEqual(self.source.enrich(a), [])
+
+    def test_ads_active_becomes_second_signal_and_clears_two_source_gate(self):
+        # Buckeye carries BOTH a PageSpeed score and a live ad count -> two distinct
+        # signal kinds -> pain-qualified, closer-bound (not parked in nurture).
+        a = self.accounts["buckeyeindustrial.example"]
+        a.signals = self.source.enrich(a)
+        kinds = {s.kind for s in a.signals}
+        self.assertEqual(kinds, {SignalKind.SITE_QUALITY, SignalKind.ADS_ACTIVE})
+        ads = next(s for s in a.signals if s.kind == SignalKind.ADS_ACTIVE)
+        self.assertEqual(ads.value, 3.0)
+        self.assertEqual(ads.source, "clay")
+        self.assertTrue(pain_qualified(a))
+
+    def test_one_signal_firm_does_not_pain_qualify(self):
+        # Lakeshore has a score but no ads -> single signal -> stays in nurture.
+        a = self.accounts["lakeshoredental.example"]
+        a.signals = self.source.enrich(a)
+        self.assertEqual(len(a.signals), 1)
+        self.assertFalse(pain_qualified(a))
+
+    def test_zero_ad_count_does_not_fire_ads_active(self):
+        # Erie Shore has ads_active=0 -> threshold is >0, so no ADS_ACTIVE signal.
+        a = self.accounts["erieshoreboutique.example"]
+        kinds = {s.kind for s in self.source.enrich(a)}
+        self.assertNotIn(SignalKind.ADS_ACTIVE, kinds)
 
 
 if __name__ == "__main__":
