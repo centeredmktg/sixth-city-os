@@ -73,20 +73,31 @@ class ClayPayloadSource(DataSource):
         ]
 
     def enrich(self, account: Account) -> list[Signal]:
-        """Emit the SITE_QUALITY signal straight from Clay's free PageSpeed score —
-        no network call. Returns [] when the row had no score (fallback handles it)."""
+        """Emit signals straight from Clay's free enrichment columns — no network
+        call. Each column Clay enriched can become one signal. The two-source gate
+        (routing.MIN_AGREEING_SIGNALS) means a list needs ≥2 signals per firm to
+        reach the closer, so a single SITE_QUALITY column parks everyone in nurture."""
         row = self._by_domain.get(account.domain, {})
+        signals: list[Signal] = []
+
+        # Signal 1 — site quality from Clay's free PageSpeed score.
         raw = row.get("pagespeed_mobile")
-        if not raw:
-            return []
-        score = float(raw)
-        return [
-            Signal(
+        if raw:
+            score = float(raw)
+            signals.append(Signal(
                 kind=SignalKind.SITE_QUALITY,
                 source=self.name,
                 value=score,
                 detail=(f"Mobile site scores {score:.0f}/100 on Google's performance "
                         f"audit. Slow, clunky load is quietly leaking conversions."),
                 observed_at=None,
-            )
-        ]
+            ))
+
+        # Signal 2 — the second agreeing signal that lets a firm pain-qualify.
+        # TODO(danny): map a second Clay-enriched column to a SignalKind so the list
+        # can clear the two-source gate. Decide: which column (e.g. "ads_active",
+        # "hiring_marketing"), what value in that column counts as the signal firing,
+        # which SignalKind it maps to, and the one-line `detail` the closer reads as
+        # the outreach reason. ~6-8 lines, mirroring the block above.
+
+        return signals
