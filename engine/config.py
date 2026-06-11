@@ -12,6 +12,15 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+# Load .env in dev (HUBSPOT_TOKEN etc.). No-op in prod, where Railway injects env
+# vars directly. Defensive import so the engine still runs if the dep isn't present.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    pass
+
 
 @dataclass(frozen=True)
 class Config:
