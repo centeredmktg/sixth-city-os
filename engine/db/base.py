@@ -10,6 +10,7 @@ import os
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from engine.config import CONFIG
 
@@ -35,7 +36,12 @@ def resolve_url(url: str | None = None) -> str:
 def make_engine(url: str | None = None):
     resolved = resolve_url(url)
     connect_args = {"check_same_thread": False} if resolved.startswith("sqlite") else {}
-    return create_engine(resolved, connect_args=connect_args, future=True)
+    kwargs: dict = {"connect_args": connect_args, "future": True}
+    # StaticPool keeps all connections to the same in-memory DB — required for
+    # SQLite :memory: so that create_all() and the session share the same file.
+    if ":memory:" in resolved:
+        kwargs["poolclass"] = StaticPool
+    return create_engine(resolved, **kwargs)
 
 
 def make_session_factory(engine):
