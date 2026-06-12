@@ -43,3 +43,14 @@ def test_upsert_is_idempotent_by_domain(session):
     repo.upsert_accounts(session, [_closer_account()])
     repo.upsert_accounts(session, [_closer_account()])  # same domain again
     assert len(repo.get_candidates(session)) == 1
+
+
+def test_mark_pushed_drops_from_candidates(session):
+    repo.upsert_accounts(session, [_closer_account()])
+    repo.mark_pushed(session, "buckeye.example", "hs-123")
+    assert repo.get_candidates(session) == []
+    from engine.db.models import AccountRow
+    row = session.get(AccountRow, "buckeye.example")
+    assert row.pushed is True
+    assert row.hubspot_id == "hs-123"
+    assert row.stage == "pushed"

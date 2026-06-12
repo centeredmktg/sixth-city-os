@@ -88,3 +88,13 @@ def get_candidates(session: Session) -> list[Account]:
     rows = session.query(AccountRow).filter(AccountRow.pushed.is_(False)).all()
     accounts = [_account_from_row(r) for r in rows]
     return [a for a in accounts if a.route and a.route.effective == Route.CLOSER]
+
+
+def mark_pushed(session: Session, domain: str, hubspot_id: str) -> None:
+    """Record the claim: the firm is in HubSpot, drop it from the triage queue."""
+    row = session.get(AccountRow, domain)
+    if row is not None:
+        row.pushed = True
+        row.hubspot_id = hubspot_id
+        row.stage = Stage.PUSHED.value
+        session.commit()
