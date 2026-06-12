@@ -14,3 +14,18 @@ def session():
         yield s
     finally:
         s.close()
+
+
+@pytest.fixture()
+def client(session, monkeypatch):
+    """TestClient whose DB dependency is the in-memory `session` fixture."""
+    from fastapi.testclient import TestClient
+    import web.server as server
+
+    monkeypatch.setattr(server, "get_session", lambda: session, raising=False)
+    server.app.dependency_overrides[server.db_session] = lambda: session
+    c = TestClient(server.app)
+    try:
+        yield c
+    finally:
+        server.app.dependency_overrides.clear()
