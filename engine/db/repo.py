@@ -37,7 +37,8 @@ def _row_from_account(a: Account) -> AccountRow:
         )
         row.route_confirmed_by = a.route.confirmed_by
     row.signals = [
-        SignalRow(kind=s.kind.value, source=s.source, value=s.value, detail=s.detail)
+        SignalRow(kind=s.kind.value, source=s.source, value=s.value, detail=s.detail,
+                  observed_at=s.observed_at)
         for s in a.signals
     ]
     return row
@@ -51,7 +52,8 @@ def _account_from_row(row: AccountRow) -> Account:
         stage=Stage(row.stage), hubspot_id=row.hubspot_id,
     )
     a.signals = [
-        Signal(kind=SignalKind(s.kind), source=s.source, value=s.value, detail=s.detail)
+        Signal(kind=SignalKind(s.kind), source=s.source, value=s.value, detail=s.detail,
+               observed_at=s.observed_at)
         for s in row.signals
     ]
     a.score = Score(

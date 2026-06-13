@@ -22,7 +22,6 @@ def client(session, monkeypatch):
     from fastapi.testclient import TestClient
     import web.server as server
 
-    monkeypatch.setattr(server, "get_session", lambda: session, raising=False)
     server.app.dependency_overrides[server.db_session] = lambda: session
     c = TestClient(server.app)
     try:

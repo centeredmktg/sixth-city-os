@@ -45,6 +45,16 @@ def test_upsert_is_idempotent_by_domain(session):
     assert len(repo.get_candidates(session)) == 1
 
 
+def test_signal_observed_at_round_trips(session):
+    from datetime import datetime
+    a = _closer_account(domain="ts.example")
+    a.signals[0].observed_at = datetime(2026, 6, 12, 9, 30)
+    repo.upsert_accounts(session, [a])
+    got = repo.get_candidates(session)[0]
+    sq = next(s for s in got.signals if s.observed_at is not None)
+    assert sq.observed_at == datetime(2026, 6, 12, 9, 30)
+
+
 def test_mark_pushed_drops_from_candidates(session):
     repo.upsert_accounts(session, [_closer_account()])
     repo.mark_pushed(session, "buckeye.example", "hs-123")

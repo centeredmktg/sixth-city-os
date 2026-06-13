@@ -51,11 +51,29 @@ async function loadCandidates() {
   tb.innerHTML = '';
   for (const c of candidates) {
     const tr = document.createElement('tr');
-    const sigs = c.signals.map(s => s.kind + ': ' + s.detail).join('<br>');
-    tr.innerHTML =
-      `<td><input type="checkbox" class="pick" value="${c.domain}"></td>` +
-      `<td>${c.domain}</td><td>${c.name}</td><td>${c.city}</td><td>${c.vertical}</td>` +
-      `<td>${c.fit.toFixed(0)}</td><td>${c.timing.toFixed(0)}</td><td>${sigs}</td>`;
+
+    const tdPick = document.createElement('td');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'pick';
+    cb.value = c.domain;
+    tdPick.appendChild(cb);
+    tr.appendChild(tdPick);
+
+    for (const text of [c.domain, c.name, c.city, c.vertical,
+                        c.fit.toFixed(0), c.timing.toFixed(0)]) {
+      const td = document.createElement('td');
+      td.textContent = text;
+      tr.appendChild(td);
+    }
+
+    const tdSig = document.createElement('td');
+    c.signals.forEach((s, i) => {
+      if (i > 0) tdSig.appendChild(document.createElement('br'));
+      tdSig.appendChild(document.createTextNode(s.kind + ': ' + s.detail));
+    });
+    tr.appendChild(tdSig);
+
     tb.appendChild(tr);
   }
 }

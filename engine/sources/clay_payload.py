@@ -37,6 +37,20 @@ SAMPLE_ROWS = [
 ]
 
 
+def _to_float(raw) -> float | None:
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def _to_int(raw) -> int | None:
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
 def _vertical(raw: str) -> Vertical:
     try:
         return Vertical(raw.strip().lower())
@@ -81,9 +95,8 @@ class ClayPayloadSource(DataSource):
         signals: list[Signal] = []
 
         # Signal 1 — site quality from Clay's free PageSpeed score.
-        raw = row.get("pagespeed_mobile")
-        if raw:
-            score = float(raw)
+        score = _to_float(row.get("pagespeed_mobile"))
+        if score is not None:
             signals.append(Signal(
                 kind=SignalKind.SITE_QUALITY,
                 source=self.name,
@@ -97,9 +110,8 @@ class ClayPayloadSource(DataSource):
         # in-market timing, AND it's the 2nd distinct kind that clears the two-source
         # gate (routing.MIN_AGREEING_SIGNALS). Threshold is >0; raise to >=2 if
         # Adyntel counts one-off boosted posts you don't want pain-qualifying a firm.
-        raw_ads = row.get("ads_active")
-        if raw_ads and int(raw_ads) > 0:
-            count = int(raw_ads)
+        count = _to_int(row.get("ads_active"))
+        if count and count > 0:
             signals.append(Signal(
                 kind=SignalKind.ADS_ACTIVE,
                 source=self.name,

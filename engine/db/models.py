@@ -7,7 +7,9 @@ gate, so the DB and HubSpot agree on identity.
 
 from __future__ import annotations
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, JSON, String
+from datetime import datetime
+
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from engine.db.base import Base
@@ -56,5 +58,6 @@ class SignalRow(Base):
     source: Mapped[str] = mapped_column(String)
     value: Mapped[float] = mapped_column(Float, default=0.0)
     detail: Mapped[str] = mapped_column(String, default="")
+    observed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     account: Mapped["AccountRow"] = relationship(back_populates="signals")

@@ -76,5 +76,15 @@ class TestClayCsvIngestion(unittest.TestCase):
         self.assertNotIn(SignalKind.ADS_ACTIVE, kinds)
 
 
+def test_malformed_numeric_values_do_not_raise():
+    rows = [{"company": "Messy", "domain": "messy.example", "vertical": "industrial_b2b",
+             "city": "Cleveland", "pagespeed_mobile": "n/a", "ads_active": "yes"}]
+    src = ClayPayloadSource(rows=rows)
+    a = src.discover()[0]
+    # Should not raise; malformed values simply produce no signals.
+    signals = src.enrich(a)
+    assert signals == []
+
+
 if __name__ == "__main__":
     unittest.main()
