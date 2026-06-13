@@ -18,6 +18,7 @@ from engine.db import repo
 from engine.db.base import make_engine, create_all, make_session_factory
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
+from engine.modules import draft_cold_email
 from engine.models import Route
 from engine.sources.clay_payload import ClayPayloadSource
 
@@ -75,6 +76,27 @@ async def ingest(file: UploadFile = File(...), session=Depends(db_session)):
         "parked_nurture": parked,
         "dropped_not_net_new": len(routed) - len(net_new),
     }
+
+
+@app.get("/api/candidates")
+def candidates(session=Depends(db_session)):
+    out = []
+    for a in repo.get_candidates(session):
+        outreach = draft_cold_email.draft(a)
+        out.append({
+            "domain": a.domain,
+            "name": a.name,
+            "city": a.city,
+            "vertical": a.vertical.value,
+            "fit": a.score.fit if a.score else 0.0,
+            "timing": a.score.timing if a.score else 0.0,
+            "total": a.score.total if a.score else 0.0,
+            "band": a.score.band if a.score else "R",
+            "signals": [{"kind": s.kind.value, "detail": s.detail} for s in a.signals],
+            "outreach": {"subject": outreach.subject, "body": outreach.body},
+        })
+    out.sort(key=lambda c: c["total"], reverse=True)
+    return {"candidates": out, "count": len(out)}
 
 
 # Serve the Claude Design app + assets under /design (presentation-layer pass).

@@ -36,3 +36,18 @@ def test_ingest_rejects_csv_without_domain(client, monkeypatch):
     r = client.post("/api/ingest",
                     files={"file": ("bad.csv", io.BytesIO(bad.encode()), "text/csv")})
     assert r.status_code == 400
+
+
+def test_candidates_lists_closer_bound_with_signals(client, monkeypatch):
+    _empty_book(monkeypatch)
+    client.post("/api/ingest",
+                files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
+    r = client.get("/api/candidates")
+    assert r.status_code == 200
+    cands = r.json()["candidates"]
+    domains = {c["domain"] for c in cands}
+    assert "buckeye.example" in domains          # 2 signals -> closer
+    assert "lakeshore.example" not in domains     # 1 signal -> nurture, not a candidate
+    buckeye = next(c for c in cands if c["domain"] == "buckeye.example")
+    assert buckeye["signals"]                      # has signal details
+    assert "outreach" in buckeye
