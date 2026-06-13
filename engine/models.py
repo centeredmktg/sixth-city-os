@@ -19,14 +19,28 @@ from typing import Optional
 
 
 class Vertical(str, Enum):
-    """The verticals Sixth City already wins in (design spec §4). UNKNOWN covers
-    arbitrary lists fed through the eval machine that didn't arrive pre-tagged."""
-    INDUSTRIAL_B2B = "industrial_b2b"
-    HOME_SERVICES = "home_services"
+    """Canonical verticals — shared 1:1 with the HubSpot `vertical` company
+    property (identical string values). Confirmed by John 2026-06-12. See
+    docs/superpowers/specs/2026-06-12-hubspot-taxonomy-design.md."""
+    INDUSTRIAL_MANUFACTURING = "industrial_manufacturing"
+    REAL_ESTATE = "real_estate"
+    EDUCATION = "education"
+    PROFESSIONAL_B2B = "professional_b2b"
     HEALTHCARE = "healthcare"
+    AUTOMOTIVE = "automotive"
     LEGAL = "legal"
-    ECOMMERCE = "ecommerce"
-    UNKNOWN = "unknown"
+    HOME_CONSTRUCTION = "home_construction"
+    RETAIL_ECOMMERCE = "retail_ecommerce"
+    UNKNOWN = "unknown"   # the "Other / Unknown" bucket; dataclass default
+
+    @classmethod
+    def from_hubspot(cls, value: str) -> "Vertical":
+        """Map a HubSpot `vertical` field value to the enum. Blank/unrecognized
+        -> UNKNOWN. Never raises — ingestion must be blank-safe."""
+        try:
+            return cls((value or "").strip().lower())
+        except ValueError:
+            return cls.UNKNOWN
 
 
 class SignalKind(str, Enum):
