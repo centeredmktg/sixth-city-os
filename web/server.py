@@ -13,14 +13,21 @@ import os
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
+from engine.attribution import dashboard
 from engine.db import repo
 from engine.db.base import make_engine, create_all, make_session_factory
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
+from engine.jobs import push_to_hubspot
 from engine.modules import draft_cold_email
-from engine.models import Route
+from engine.models import Route, Stage
 from engine.sources.clay_payload import ClayPayloadSource
+
+
+class PushRequest(BaseModel):
+    domains: list[str]
 
 app = FastAPI(title="Sixth City Pipeline Engine")
 
@@ -97,6 +104,27 @@ def candidates(session=Depends(db_session)):
         })
     out.sort(key=lambda c: c["total"], reverse=True)
     return {"candidates": out, "count": len(out)}
+
+
+@app.post("/api/push")
+def push(req: PushRequest, session=Depends(db_session)):
+    selected = {a.domain: a for a in repo.get_candidates(session)
+                if a.domain in set(req.domains)}
+    # Confirm the HITL gate for the operator-selected firms, then run the push job
+    # (which re-validates net-new by domain at claim time as the SLA guard).
+    for a in selected.values():
+        a.route.confirmed = True
+        a.route.confirmed_by = "operator"
+
+    pushed = push_to_hubspot.run(list(selected.values()))
+
+    results = []
+    for a in pushed:
+        if a.hubspot_id and not a.hubspot_id.startswith("dry-"):
+            repo.mark_pushed(session, a.domain, a.hubspot_id)
+        results.append({"domain": a.domain, "hubspot_id": a.hubspot_id})
+
+    return {"pushed": results, "count": len(results), "scoreboard": dashboard.build()}
 
 
 # Serve the Claude Design app + assets under /design (presentation-layer pass).
