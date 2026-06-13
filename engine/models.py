@@ -19,14 +19,78 @@ from typing import Optional
 
 
 class Vertical(str, Enum):
-    """The verticals Sixth City already wins in (design spec §4). UNKNOWN covers
-    arbitrary lists fed through the eval machine that didn't arrive pre-tagged."""
-    INDUSTRIAL_B2B = "industrial_b2b"
-    HOME_SERVICES = "home_services"
-    HEALTHCARE = "healthcare"
-    LEGAL = "legal"
-    ECOMMERCE = "ecommerce"
-    UNKNOWN = "unknown"
+    """Ten canonical verticals mapped from HubSpot Industry tags (design spec §4).
+    UNKNOWN covers accounts that arrived without a recognizable tag — never a
+    penalty (historical unknowns closed ~24%, above baseline).
+    Use `Vertical.from_hubspot(tag)` to map raw HubSpot strings."""
+
+    INDUSTRIAL_MANUFACTURING = "industrial_manufacturing"
+    REAL_ESTATE               = "real_estate"
+    EDUCATION                 = "education"
+    PROFESSIONAL_B2B          = "professional_b2b"
+    HEALTHCARE                = "healthcare"
+    AUTOMOTIVE                = "automotive"
+    LEGAL                     = "legal"
+    HOME_CONSTRUCTION         = "home_construction"
+    RETAIL_ECOMMERCE          = "retail_ecommerce"
+    UNKNOWN                   = "unknown"
+
+    @classmethod
+    def from_hubspot(cls, tag: str | None) -> "Vertical":
+        """Map a raw HubSpot Industry string to a canonical Vertical.
+
+        The mapping is intentionally broad — we'd rather correctly classify a
+        'Manufacturing' company than let it fall through to UNKNOWN and miss the
+        fit-weight signal.  Unknown / None always returns UNKNOWN."""
+        if not tag:
+            return cls.UNKNOWN
+        t = tag.strip().lower()
+        _MAP: dict[str, "Vertical"] = {
+            # Industrial / Manufacturing
+            "manufacturing": cls.INDUSTRIAL_MANUFACTURING,
+            "industrial": cls.INDUSTRIAL_MANUFACTURING,
+            "industrial_manufacturing": cls.INDUSTRIAL_MANUFACTURING,
+            "mechanical or industrial engineering": cls.INDUSTRIAL_MANUFACTURING,
+            "industrial automation": cls.INDUSTRIAL_MANUFACTURING,
+            # Real Estate
+            "real estate": cls.REAL_ESTATE,
+            "real_estate": cls.REAL_ESTATE,
+            "commercial real estate": cls.REAL_ESTATE,
+            # Education
+            "education": cls.EDUCATION,
+            "e-learning": cls.EDUCATION,
+            "higher education": cls.EDUCATION,
+            # Professional B2B (software, IT, consulting)
+            "information technology and services": cls.PROFESSIONAL_B2B,
+            "computer software": cls.PROFESSIONAL_B2B,
+            "management consulting": cls.PROFESSIONAL_B2B,
+            "professional_b2b": cls.PROFESSIONAL_B2B,
+            "staffing and recruiting": cls.PROFESSIONAL_B2B,
+            "accounting": cls.PROFESSIONAL_B2B,
+            # Healthcare
+            "hospital & health care": cls.HEALTHCARE,
+            "health, wellness and fitness": cls.HEALTHCARE,
+            "medical practice": cls.HEALTHCARE,
+            "healthcare": cls.HEALTHCARE,
+            # Automotive
+            "automotive": cls.AUTOMOTIVE,
+            "motor vehicle manufacturing": cls.AUTOMOTIVE,
+            # Legal
+            "law practice": cls.LEGAL,
+            "legal services": cls.LEGAL,
+            "legal": cls.LEGAL,
+            # Home / Construction
+            "construction": cls.HOME_CONSTRUCTION,
+            "home_construction": cls.HOME_CONSTRUCTION,
+            "home services": cls.HOME_CONSTRUCTION,
+            "home_services": cls.HOME_CONSTRUCTION,
+            # Retail / E-commerce
+            "retail": cls.RETAIL_ECOMMERCE,
+            "ecommerce": cls.RETAIL_ECOMMERCE,
+            "retail_ecommerce": cls.RETAIL_ECOMMERCE,
+            "internet": cls.RETAIL_ECOMMERCE,
+        }
+        return _MAP.get(t, cls.UNKNOWN)
 
 
 class SignalKind(str, Enum):
