@@ -19,3 +19,9 @@ def test_from_hubspot_blank_or_unknown_is_unknown():
     assert Vertical.from_hubspot("") is Vertical.UNKNOWN
     assert Vertical.from_hubspot(None) is Vertical.UNKNOWN
     assert Vertical.from_hubspot("not_a_vertical") is Vertical.UNKNOWN
+
+
+def test_from_hubspot_never_raises_on_non_string():
+    """Contract is 'never raises' — a numeric/NaN payload value degrades, not crash."""
+    assert Vertical.from_hubspot(5) is Vertical.UNKNOWN
+    assert Vertical.from_hubspot(float("nan")) is Vertical.UNKNOWN

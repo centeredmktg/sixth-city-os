@@ -25,9 +25,6 @@ from engine.models import Account, Score, SignalKind, Vertical
 # bonuses spread that out by how much better than the 19.3% baseline each vertical
 # historically closes. UNKNOWN stays neutral-positive: unlabeled accounts closed at
 # ~24% historically, so missing a tag is never a penalty.
-#   NOTE: the enum can't yet express Real Estate / Education / Automotive (all
-#   above-baseline winners) — they fall into UNKNOWN today. Expanding Vertical to
-#   capture them is the higher-value follow-up (touches design spec §4 + tagging).
 VERTICAL_FIT_BONUS = {
     Vertical.INDUSTRIAL_MANUFACTURING: 16,  # ~25% win — the spine
     Vertical.REAL_ESTATE:              16,  # ~27% win

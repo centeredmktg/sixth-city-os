@@ -43,8 +43,8 @@ class Vertical(str, Enum):
         taxonomy.py, NOT here (Approach A: the engine reads canonical values)."""
         try:
             return cls((value or "").strip().lower())
-        except ValueError:
-            return cls.UNKNOWN
+        except (ValueError, AttributeError):
+            return cls.UNKNOWN   # non-str input (int/NaN) also degrades, never raises
 
 
 class SignalKind(str, Enum):
