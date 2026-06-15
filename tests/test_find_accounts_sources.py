@@ -3,7 +3,7 @@ from engine.sources.clay_payload import ClayPayloadSource
 
 
 def test_run_uses_injected_source_not_registry():
-    rows = [{"company": "Inj", "domain": "inj.example", "vertical": "industrial_b2b",
+    rows = [{"company": "Inj", "domain": "inj.example", "vertical": "industrial_manufacturing",
              "city": "Cleveland", "pagespeed_mobile": "30", "ads_active": "2"}]
     src = ClayPayloadSource(rows=rows)
     found = find_accounts.run(sources=[src])

@@ -18,7 +18,7 @@ from engine.models import (
 
 
 def _closer_account(domain="buckeye.example"):
-    a = Account(name="Buckeye", domain=domain, vertical=Vertical.INDUSTRIAL_B2B,
+    a = Account(name="Buckeye", domain=domain, vertical=Vertical.INDUSTRIAL_MANUFACTURING,
                 city="Cleveland", discovered_by="clay")
     a.signals = [
         Signal(kind=SignalKind.SITE_QUALITY, source="clay", value=34.0, detail="slow"),

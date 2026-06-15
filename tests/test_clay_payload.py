@@ -25,7 +25,7 @@ class TestClayCsvIngestion(unittest.TestCase):
     def test_core_fields_and_linkedin_captured(self):
         a = self.accounts["buckeyeindustrial.example"]
         self.assertEqual(a.name, "Buckeye Industrial Supply")
-        self.assertEqual(a.vertical, Vertical.INDUSTRIAL_B2B)
+        self.assertEqual(a.vertical, Vertical.INDUSTRIAL_MANUFACTURING)
         self.assertEqual(a.city, "Cleveland")
         self.assertIn("buckeye-industrial", a.linkedin_url)
 
@@ -77,13 +77,28 @@ class TestClayCsvIngestion(unittest.TestCase):
 
 
 def test_malformed_numeric_values_do_not_raise():
-    rows = [{"company": "Messy", "domain": "messy.example", "vertical": "industrial_b2b",
+    rows = [{"company": "Messy", "domain": "messy.example", "vertical": "industrial_manufacturing",
              "city": "Cleveland", "pagespeed_mobile": "n/a", "ads_active": "yes"}]
     src = ClayPayloadSource(rows=rows)
     a = src.discover()[0]
     # Should not raise; malformed values simply produce no signals.
     signals = src.enrich(a)
     assert signals == []
+
+
+def test_discover_reads_vertical_as_field_not_inferred():
+    from engine.models import Vertical
+    from engine.sources.clay_payload import ClayPayloadSource
+    rows = [{"company": "Acme Tool & Die", "domain": "acme.example",
+             "vertical": "industrial_manufacturing", "city": "Cleveland"}]
+    assert ClayPayloadSource(rows=rows).discover()[0].vertical is Vertical.INDUSTRIAL_MANUFACTURING
+
+
+def test_discover_blank_vertical_is_unknown():
+    from engine.models import Vertical
+    from engine.sources.clay_payload import ClayPayloadSource
+    rows = [{"company": "Mystery Co", "domain": "mystery.example", "vertical": ""}]
+    assert ClayPayloadSource(rows=rows).discover()[0].vertical is Vertical.UNKNOWN
 
 
 if __name__ == "__main__":

@@ -27,13 +27,13 @@ from engine.sources.base import DataSource
 SAMPLE_ROWS = [
     {"company": "Buckeye Industrial Supply", "domain": "buckeyeindustrial.example",
      "linkedin_url": "https://linkedin.com/company/buckeye-industrial",
-     "vertical": "industrial_b2b", "city": "Cleveland", "pagespeed_mobile": "34"},
+     "vertical": "industrial_manufacturing", "city": "Cleveland", "pagespeed_mobile": "34"},
     {"company": "Lakeshore Dental Group", "domain": "lakeshoredental.example",
      "linkedin_url": "https://linkedin.com/company/lakeshore-dental",
      "vertical": "healthcare", "city": "Toledo", "pagespeed_mobile": "61"},
     {"company": "Maple City Movers", "domain": "maplecitymovers.example",
      "linkedin_url": "https://linkedin.com/company/maple-city-movers",
-     "vertical": "home_services", "city": "Akron"},  # no score -> fallback eval territory
+     "vertical": "home_construction", "city": "Akron"},  # no score -> fallback eval territory
 ]
 
 
@@ -52,10 +52,7 @@ def _to_int(raw) -> int | None:
 
 
 def _vertical(raw: str) -> Vertical:
-    try:
-        return Vertical(raw.strip().lower())
-    except (ValueError, AttributeError):
-        return Vertical.UNKNOWN
+    return Vertical.from_hubspot(raw)
 
 
 class ClayPayloadSource(DataSource):

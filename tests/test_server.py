@@ -8,7 +8,7 @@ import io
 
 CSV = (
     "company,domain,vertical,city,pagespeed_mobile,ads_active\n"
-    "Buckeye Industrial,buckeye.example,industrial_b2b,Cleveland,34,3\n"
+    "Buckeye Industrial,buckeye.example,industrial_manufacturing,Cleveland,34,3\n"
     "Lakeshore Dental,lakeshore.example,healthcare,Toledo,61,\n"
 )
 

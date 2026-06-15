@@ -36,61 +36,15 @@ class Vertical(str, Enum):
     UNKNOWN                   = "unknown"
 
     @classmethod
-    def from_hubspot(cls, tag: str | None) -> "Vertical":
-        """Map a raw HubSpot Industry string to a canonical Vertical.
-
-        The mapping is intentionally broad — we'd rather correctly classify a
-        'Manufacturing' company than let it fall through to UNKNOWN and miss the
-        fit-weight signal.  Unknown / None always returns UNKNOWN."""
-        if not tag:
+    def from_hubspot(cls, value: str | None) -> "Vertical":
+        """Map a HubSpot `vertical` field value (canonical snake_case) to the enum.
+        Blank/unrecognized -> UNKNOWN. Never raises — ingestion must be blank-safe.
+        The raw-industry -> canonical rollup lives in Clay (export) + the backfill's
+        taxonomy.py, NOT here (Approach A: the engine reads canonical values)."""
+        try:
+            return cls((value or "").strip().lower())
+        except ValueError:
             return cls.UNKNOWN
-        t = tag.strip().lower()
-        _MAP: dict[str, "Vertical"] = {
-            # Industrial / Manufacturing
-            "manufacturing": cls.INDUSTRIAL_MANUFACTURING,
-            "industrial": cls.INDUSTRIAL_MANUFACTURING,
-            "industrial_manufacturing": cls.INDUSTRIAL_MANUFACTURING,
-            "mechanical or industrial engineering": cls.INDUSTRIAL_MANUFACTURING,
-            "industrial automation": cls.INDUSTRIAL_MANUFACTURING,
-            # Real Estate
-            "real estate": cls.REAL_ESTATE,
-            "real_estate": cls.REAL_ESTATE,
-            "commercial real estate": cls.REAL_ESTATE,
-            # Education
-            "education": cls.EDUCATION,
-            "e-learning": cls.EDUCATION,
-            "higher education": cls.EDUCATION,
-            # Professional B2B (software, IT, consulting)
-            "information technology and services": cls.PROFESSIONAL_B2B,
-            "computer software": cls.PROFESSIONAL_B2B,
-            "management consulting": cls.PROFESSIONAL_B2B,
-            "professional_b2b": cls.PROFESSIONAL_B2B,
-            "staffing and recruiting": cls.PROFESSIONAL_B2B,
-            "accounting": cls.PROFESSIONAL_B2B,
-            # Healthcare
-            "hospital & health care": cls.HEALTHCARE,
-            "health, wellness and fitness": cls.HEALTHCARE,
-            "medical practice": cls.HEALTHCARE,
-            "healthcare": cls.HEALTHCARE,
-            # Automotive
-            "automotive": cls.AUTOMOTIVE,
-            "motor vehicle manufacturing": cls.AUTOMOTIVE,
-            # Legal
-            "law practice": cls.LEGAL,
-            "legal services": cls.LEGAL,
-            "legal": cls.LEGAL,
-            # Home / Construction
-            "construction": cls.HOME_CONSTRUCTION,
-            "home_construction": cls.HOME_CONSTRUCTION,
-            "home services": cls.HOME_CONSTRUCTION,
-            "home_services": cls.HOME_CONSTRUCTION,
-            # Retail / E-commerce
-            "retail": cls.RETAIL_ECOMMERCE,
-            "ecommerce": cls.RETAIL_ECOMMERCE,
-            "retail_ecommerce": cls.RETAIL_ECOMMERCE,
-            "internet": cls.RETAIL_ECOMMERCE,
-        }
-        return _MAP.get(t, cls.UNKNOWN)
 
 
 class SignalKind(str, Enum):
