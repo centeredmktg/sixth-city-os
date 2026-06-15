@@ -46,7 +46,7 @@ def _row_from_account(a: Account) -> AccountRow:
 
 def _account_from_row(row: AccountRow) -> Account:
     a = Account(
-        name=row.name, domain=row.domain, vertical=Vertical(row.vertical),
+        name=row.name, domain=row.domain, vertical=Vertical.from_hubspot(row.vertical),
         linkedin_url=row.linkedin_url, city=row.city, state=row.state,
         extra=row.extra or {}, discovered_by=row.discovered_by,
         stage=Stage(row.stage), hubspot_id=row.hubspot_id,
