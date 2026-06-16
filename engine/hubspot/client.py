@@ -63,9 +63,35 @@ class HubSpotClient:
         return results[0]["id"] if results else None
 
     def filter_net_new(self, accounts: list[Account]) -> list[Account]:
-        """Pre-filter: drop anything already in the book BEFORE we spend enrichment
-        credits on it. push() re-checks at write time as the authoritative guard."""
-        return [a for a in accounts if self.find_company_id_by_domain(a.domain) is None]
+        """Pre-filter: drop anything already in the book BEFORE enrichment. push()
+        re-checks at write time as the authoritative guard. BATCHED — one search per
+        100 domains (a 4,600-firm dump = ~46 calls, seconds), not one per firm."""
+        if self._dry:
+            return accounts  # stub: pretend the book is empty -> all net-new
+        domains = [a.domain for a in accounts if a.domain]
+        existing: set[str] = set()
+        for i in range(0, len(domains), 100):
+            chunk = domains[i:i + 100]
+            body = {
+                "filterGroups": [{"filters": [
+                    {"propertyName": "domain", "operator": "IN", "values": chunk},
+                ]}],
+                "properties": ["domain"],
+                "limit": 100,
+            }
+            after: str | None = None
+            while True:
+                if after:
+                    body["after"] = after
+                data = self._post("/crm/v3/objects/companies/search", body)
+                for r in data.get("results", []):
+                    d = (r.get("properties", {}) or {}).get("domain")
+                    if d:
+                        existing.add(d.strip().lower())
+                after = data.get("paging", {}).get("next", {}).get("after")
+                if not after:
+                    break
+        return [a for a in accounts if a.domain.strip().lower() not in existing]
 
     # --- the claim ----------------------------------------------------------
     def push(self, account: Account, outreach: Outreach) -> str:
