@@ -12,10 +12,28 @@ Stub status: real shapes, no persistence yet. Swap dataclasses for ORM models
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional
+
+
+# Raw LinkedIn/Clay `industry` -> canonical vertical, ordered keyword rules (first
+# match wins; specific exclusions before the broad 'manufactur'). Clay's free enrich
+# emits LinkedIn industry (256+ values), NOT our taxonomy, so the engine maps it at
+# ingestion. Present-but-unmatched -> UNKNOWN (neutral, never a penalty).
+_INDUSTRY_RULES = [
+    ("automotive",               r"motor vehicle|automotive|vehicle repair"),
+    ("healthcare",               r"health care|hospital|medical|dental|dentist|wellness|mental health|veterinar|pharmaceutic|biotech|diagnostic laborator|home health|alternative medicine"),
+    ("legal",                    r"law practice|legal"),
+    ("real_estate",              r"real estate"),
+    ("education",                r"higher education|education|e-learning|vocational training|primary and secondary"),
+    ("retail_ecommerce",         r"retail|wholesale|consumer goods|apparel|fashion|restaurant|food|beverage|luxury goods|furniture|sporting goods|grocer"),
+    ("industrial_manufacturing", r"manufactur|machinery|industrial|fabricat|\bmetal|plastics|chemical|aerospace|aviation|semiconductor|mining|oil and gas|paper and forest|textile|packaging and container|glass, ceramics|robotic|defense|wood product|rubber|foundr|tooling|measuring and control|electrical equipment|primary metal|maritime"),
+    ("home_construction",        r"construction|contractor|facilities|landscaping|hvac|janitorial|fire protection|repair and maintenance|building"),
+    ("professional_b2b",         r"advertising|marketing|public relations|communications|\bdesign|media|printing|photography|events|broadcast|publishing|animation|writing|software|information technology|technology, information|consulting|professional services|staffing|recruiting|financial|accounting|banking|insurance|investment|capital markets|human resources|telecommunications|data infrastructure|computer|research services|outsourcing|executive search|strategic management|engineering services|civil engineering|architecture"),
+]
 
 
 class Vertical(str, Enum):
@@ -45,6 +63,18 @@ class Vertical(str, Enum):
             return cls((value or "").strip().lower())
         except (ValueError, AttributeError):
             return cls.UNKNOWN   # non-str input (int/NaN) also degrades, never raises
+
+    @classmethod
+    def from_industry(cls, raw: str | None) -> "Vertical":
+        """Map a raw LinkedIn/Clay `industry` string to a canonical Vertical via
+        keyword rules (_INDUSTRY_RULES). Blank or present-but-unmatched -> UNKNOWN."""
+        t = (str(raw) if raw is not None else "").strip().lower()
+        if not t:
+            return cls.UNKNOWN
+        for value, pattern in _INDUSTRY_RULES:
+            if re.search(pattern, t):
+                return cls(value)
+        return cls.UNKNOWN
 
 
 class SignalKind(str, Enum):

@@ -1,29 +1,29 @@
 """
 Clay payload ingester — the real top-of-funnel.
 
-Clay does what Clay is best at: find ~50k firms matching ICP and enrich them for
-FREE (domain, LinkedIn URL, and a PageSpeed score via Google auth). We ingest
-that rich export and turn it into Accounts + signals — no API calls, no credits,
-no tokens.
+Clay does what Clay is best at: find firms matching ICP and enrich them for FREE
+(domain, LinkedIn URL, industry, and a PageSpeed score via Google auth). We ingest
+that export and turn it into Accounts + signals — no API calls, no credits.
 
-Because Clay already ran PageSpeed, this source emits the SITE_QUALITY signal
-directly from the export's score column. The in-house PageSpeed source only fires
-as a FALLBACK for domains that arrive without a score (non-Clay lists).
+Real Clay exports use human/LinkedIn column headers (`Domain`, `Name`, `Primary
+Industry`, `LinkedIn URL`, `Location`) — NOT lowercase snake_case. So we normalize
+headers (case-insensitive synonyms) and resolve `vertical` from a `vertical` column
+if present, else by mapping the raw `Primary Industry` via Vertical.from_industry.
 
-Input: a list of row dicts (from a Clay CSV/JSON export). Stub ships a small
-sample so the loop runs offline. Real version: point csv_path at the export.
+Input: a list of row dicts (Clay CSV/JSON export). Stub ships a small sample so the
+loop runs offline. Real version: point csv_path at the export.
 """
 
 from __future__ import annotations
 
 import csv
-from datetime import datetime
+import re
 
 from engine.models import Account, Signal, SignalKind, Vertical
 from engine.sources.base import DataSource
 
-# A small sample mimicking a Clay free-payload export. Two rows carry a PageSpeed
-# score (Clay enriched them); one arrives bare (the fallback eval would handle it).
+# Small sample mimicking a Clay free-payload export (canonical lowercase keys —
+# still resolved via the synonyms below).
 SAMPLE_ROWS = [
     {"company": "Buckeye Industrial Supply", "domain": "buckeyeindustrial.example",
      "linkedin_url": "https://linkedin.com/company/buckeye-industrial",
@@ -35,6 +35,24 @@ SAMPLE_ROWS = [
      "linkedin_url": "https://linkedin.com/company/maple-city-movers",
      "vertical": "home_construction", "city": "Akron"},  # no score -> fallback eval territory
 ]
+
+# Real Clay/LinkedIn headers vary in case + naming. Map them to canonical fields.
+SYNONYMS = {
+    "domain":           ["domain", "company domain", "website", "website url", "domain name"],
+    "company":          ["company", "name", "company name"],
+    "vertical":         ["vertical"],
+    "industry":         ["primary industry", "industry"],
+    "linkedin_url":     ["linkedin url", "linkedin_url", "linkedin"],
+    "city":             ["city"],
+    "location":         ["location"],
+    "pagespeed_mobile": ["pagespeed_mobile", "pagespeed mobile", "mobile performance", "pagespeed"],
+    "ads_active":       ["ads_active", "ads active", "ad count", "active ads"],
+}
+# Identity/firmographic keys consumed into first-class fields (so they're not
+# duplicated into extra{}). Signal columns (pagespeed/ads) are intentionally left in
+# extra too — harmless, and downstream readers find them by canonical name.
+_CORE_KEYS = {n for f in ("domain", "company", "vertical", "industry",
+                          "linkedin_url", "city", "location") for n in SYNONYMS[f]}
 
 
 def _to_float(raw) -> float | None:
@@ -51,8 +69,36 @@ def _to_int(raw) -> int | None:
         return None
 
 
-def _vertical(raw: str) -> Vertical:
-    return Vertical.from_hubspot(raw)
+def _lower_keys(row: dict) -> dict:
+    return {(k or "").strip().lower(): ("" if v is None else v) for k, v in row.items()}
+
+
+def _get(lrow: dict, field: str) -> str:
+    for name in SYNONYMS.get(field, [field]):
+        val = lrow.get(name)
+        if val is not None and str(val).strip():
+            return str(val).strip()
+    return ""
+
+
+def _clean_domain(raw: str) -> str:
+    d = re.sub(r"^https?://", "", (raw or "").strip().lower()).split("/")[0]
+    return d[4:] if d.startswith("www.") else d
+
+
+def _resolve_vertical(lrow: dict) -> Vertical:
+    """Prefer an explicit canonical `vertical` column; else map raw `industry`."""
+    v = _get(lrow, "vertical")
+    if v:
+        return Vertical.from_hubspot(v)
+    return Vertical.from_industry(_get(lrow, "industry"))
+
+
+def has_domain_column(rows: list[dict]) -> bool:
+    if not rows:
+        return False
+    keys = {(k or "").strip().lower() for k in rows[0]}
+    return bool(keys & set(SYNONYMS["domain"]))
 
 
 class ClayPayloadSource(DataSource):
@@ -62,57 +108,65 @@ class ClayPayloadSource(DataSource):
 
     def __init__(self, rows: list[dict] | None = None, csv_path: str | None = None):
         if csv_path:
-            with open(csv_path, newline="", encoding="utf-8") as f:
+            with open(csv_path, newline="", encoding="utf-8-sig") as f:
                 rows = list(csv.DictReader(f))
-        self._rows = rows if rows is not None else SAMPLE_ROWS
-        self._by_domain = {r["domain"]: r for r in self._rows}
+        raw_rows = rows if rows is not None else SAMPLE_ROWS
+        self._norm = [self._normalize(r) for r in raw_rows]
+        self._by_domain = {n["domain"]: n for n in self._norm if n["domain"]}
+
+    @staticmethod
+    def _normalize(raw: dict) -> dict:
+        lrow = _lower_keys(raw)
+        city = _get(lrow, "city") or _get(lrow, "location").split(",")[0].strip()
+        return {
+            "domain": _clean_domain(_get(lrow, "domain")),
+            "company": _get(lrow, "company"),
+            "vertical": _resolve_vertical(lrow),
+            "linkedin_url": _get(lrow, "linkedin_url"),
+            "city": city,
+            "extra": {k: v for k, v in raw.items() if (k or "").strip().lower() not in _CORE_KEYS},
+            "lrow": lrow,
+        }
 
     def discover(self) -> list[Account]:
-        return [
-            Account(
-                name=r.get("company", r["domain"]),
-                domain=r["domain"],
-                vertical=_vertical(r.get("vertical", "")),
-                linkedin_url=r.get("linkedin_url", ""),
-                city=r.get("city", ""),
-                extra={k: v for k, v in r.items()
-                       if k not in {"company", "domain", "vertical", "linkedin_url",
-                                    "city", "pagespeed_mobile"}},
+        accounts = []
+        for n in self._norm:
+            if not n["domain"]:
+                continue   # no domain = can't identify or dedupe; skip
+            accounts.append(Account(
+                name=n["company"] or n["domain"],
+                domain=n["domain"],
+                vertical=n["vertical"],
+                linkedin_url=n["linkedin_url"],
+                city=n["city"],
+                extra=n["extra"],
                 discovered_by=self.name,
-            )
-            for r in self._rows
-        ]
+            ))
+        return accounts
 
     def enrich(self, account: Account) -> list[Signal]:
         """Emit signals straight from Clay's free enrichment columns — no network
-        call. Each column Clay enriched can become one signal. The two-source gate
-        (routing.MIN_AGREEING_SIGNALS) means a list needs ≥2 signals per firm to
-        reach the closer, so a single SITE_QUALITY column parks everyone in nurture."""
-        row = self._by_domain.get(account.domain, {})
+        call. The two-source gate (routing.MIN_AGREEING_SIGNALS) means a firm needs
+        ≥2 distinct signal kinds to reach the closer; a single column parks it."""
+        n = self._by_domain.get(account.domain)
+        if not n:
+            return []
+        lrow = n["lrow"]
         signals: list[Signal] = []
 
-        # Signal 1 — site quality from Clay's free PageSpeed score.
-        score = _to_float(row.get("pagespeed_mobile"))
+        score = _to_float(_get(lrow, "pagespeed_mobile"))
         if score is not None:
             signals.append(Signal(
-                kind=SignalKind.SITE_QUALITY,
-                source=self.name,
-                value=score,
+                kind=SignalKind.SITE_QUALITY, source=self.name, value=score,
                 detail=(f"Mobile site scores {score:.0f}/100 on Google's performance "
                         f"audit. Slow, clunky load is quietly leaking conversions."),
                 observed_at=None,
             ))
 
-        # Signal 2 — ADS_ACTIVE from Adyntel's ad count. Budget already committed =
-        # in-market timing, AND it's the 2nd distinct kind that clears the two-source
-        # gate (routing.MIN_AGREEING_SIGNALS). Threshold is >0; raise to >=2 if
-        # Adyntel counts one-off boosted posts you don't want pain-qualifying a firm.
-        count = _to_int(row.get("ads_active"))
+        count = _to_int(_get(lrow, "ads_active"))
         if count and count > 0:
             signals.append(Signal(
-                kind=SignalKind.ADS_ACTIVE,
-                source=self.name,
-                value=float(count),
+                kind=SignalKind.ADS_ACTIVE, source=self.name, value=float(count),
                 detail=(f"Running {count} live paid ad(s) — budget's already committed. "
                         f"They're buying traffic a site this slow can't convert."),
                 observed_at=None,

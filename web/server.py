@@ -23,7 +23,7 @@ from engine.jobs import find_accounts, score_accounts, route_accounts
 from engine.jobs import push_to_hubspot
 from engine.modules import draft_cold_email
 from engine.models import Route, Stage
-from engine.sources.clay_payload import ClayPayloadSource
+from engine.sources.clay_payload import ClayPayloadSource, has_domain_column
 
 
 class PushRequest(BaseModel):
@@ -62,8 +62,9 @@ def index():
 async def ingest(file: UploadFile = File(...), session=Depends(db_session)):
     raw = (await file.read()).decode("utf-8")
     rows = list(csvmod.DictReader(io.StringIO(raw)))
-    if not rows or "domain" not in rows[0]:
-        raise HTTPException(status_code=400, detail="CSV must have a 'domain' column")
+    if not has_domain_column(rows):
+        raise HTTPException(status_code=400,
+                            detail="CSV must have a domain column (e.g. 'Domain', 'Website')")
 
     src = ClayPayloadSource(rows=rows)
     discovered = find_accounts.run(sources=[src])
