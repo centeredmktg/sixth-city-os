@@ -26,8 +26,8 @@ const IMP_CSS = `
 .im-bar__nm{ font-weight:800; font-size:var(--text-sm); color:var(--text-strong); font-family:var(--font-mono); }
 .im-bar__meta{ font-size:11px; color:var(--text-subtle); margin-top:1px; }
 .im-bar__x{ margin-left:auto; }
-.im-grid{ display:grid; grid-template-columns:1fr 332px; gap:22px; align-items:start; }
-.im-card{ background:var(--surface-card); border:1px solid var(--border-subtle); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); }
+.im-grid{ display:grid; grid-template-columns:1fr; gap:22px; align-items:start; }
+.im-card{ background:var(--surface-card); border:1px solid var(--border-subtle); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); min-width:0; }
 .im-card__h{ padding:15px 20px; border-bottom:1px solid var(--border-subtle); display:flex; align-items:center; gap:10px; }
 .im-card__h h4{ margin:0; font-size:var(--text-lg); }
 .im-card__h .pe-overline{ margin-left:auto; }
@@ -37,7 +37,7 @@ const IMP_CSS = `
 .im-prevtbl th{ text-align:left; font-family:var(--font-mono); font-size:10px; color:var(--text-subtle); padding:6px 10px; border-bottom:1px solid var(--border-default); white-space:nowrap; }
 .im-prevtbl td{ padding:7px 10px; border-bottom:1px solid var(--border-subtle); white-space:nowrap; color:var(--text-body); max-width:200px; overflow:hidden; text-overflow:ellipsis; }
 .im-prevtbl tr:last-child td{ border-bottom:none; }
-.im-opts{ position:sticky; top:0; background:var(--surface-card); border:1px solid var(--border-subtle); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); overflow:hidden; }
+.im-opts{ background:var(--surface-card); border:1px solid var(--border-subtle); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); overflow:hidden; min-width:0; }
 .im-opts__h{ padding:15px 18px; border-bottom:1px solid var(--border-subtle); display:flex; align-items:center; gap:9px; }
 .im-opts__h h4{ margin:0; font-size:var(--text-md); }
 .im-opt{ padding:14px 18px; border-bottom:1px solid var(--border-subtle); }
@@ -80,7 +80,10 @@ function parseCsv(text) {
   if (!lines.length) return { headers: [], rows: [], count: 0, hasDomain: false };
   const headers = lines[0].split(",").map((h) => h.trim());
   const rows = lines.slice(1, 6).map((l) => l.split(","));
-  const hasDomain = headers.some((h) => ["domain", "company domain", "website", "domain name"].includes(h.toLowerCase()));
+  // Robust to quoted fields w/ embedded commas (naive split mangles them): look
+  // for a domain/website header token in the raw line. Advisory only — the server
+  // (csv.DictReader) is the authority and re-validates on ingest.
+  const hasDomain = /(^|,)\s*"?\s*(domain|website)\b/i.test(lines[0]);
   return { headers, rows, count: lines.length - 1, hasDomain };
 }
 
@@ -194,7 +197,7 @@ function FileImporter({ onCancel, onComplete, onError }) {
               </div>
               {!parsed.hasDomain && <div className="im-warn">No domain column detected — the engine will reject this. Add a "Domain" column and re-import.</div>}
               <div className="im-run">
-                <BtnM variant="primary" size="md" block icon={<IcoM.Zap size={15} />} disabled={!parsed.hasDomain} onClick={() => { setTaskIdx(0); setStep("running"); }}>Run {fmtI(rows)} rows through the engine</BtnM>
+                <BtnM variant="primary" size="md" block icon={<IcoM.Zap size={15} />} onClick={() => { setTaskIdx(0); setStep("running"); }}>Run {fmtI(rows)} rows through the engine</BtnM>
               </div>
             </div>
           </div>
