@@ -14,6 +14,7 @@ Auth is an account-scoped Service Key (HUBSPOT_TOKEN, Bearer). No token -> dry m
 
 from __future__ import annotations
 
+import time
 from datetime import date
 
 import requests
@@ -23,6 +24,10 @@ from engine.models import Account, Attribution, Outreach
 
 
 API = "https://api.hubapi.com"
+# HubSpot's Search API is throttled to ~4 req/s (separate, stricter than the general
+# limit). filter_net_new fires ~1 search per 100 domains, so a big list bursts past it.
+_SEARCH_PACE_SEC = 0.25   # proactive pace -> stay under ~4/s
+_MAX_RETRIES = 6          # 429 / transient 5xx retry budget
 
 # The HubSpot custom properties that ARE the scoreboard. Created in portal 3358054,
 # property group 'pipeline_engine'. Agreed in the proposal, not litigated later.
@@ -42,9 +47,19 @@ class HubSpotClient:
             })
 
     def _post(self, path: str, payload: dict) -> dict:
-        r = self._session.post(f"{API}{path}", json=payload, timeout=30)
-        r.raise_for_status()
-        return r.json() if r.content else {}
+        """POST with 429/5xx retry + backoff (HubSpot rate limits the Search API hard).
+        Respects Retry-After when present, else exponential backoff (capped)."""
+        for attempt in range(_MAX_RETRIES + 1):
+            r = self._session.post(f"{API}{path}", json=payload, timeout=30)
+            if (r.status_code == 429 or 500 <= r.status_code < 600) and attempt < _MAX_RETRIES:
+                retry_after = r.headers.get("Retry-After")
+                wait = float(retry_after) if retry_after and retry_after.replace(".", "", 1).isdigit() \
+                    else min(2 ** attempt * 0.5, 10.0)
+                time.sleep(wait)
+                continue
+            r.raise_for_status()
+            return r.json() if r.content else {}
+        return {}
 
     # --- net-new gate -------------------------------------------------------
     def find_company_id_by_domain(self, domain: str) -> str | None:
@@ -91,6 +106,7 @@ class HubSpotClient:
                 after = data.get("paging", {}).get("next", {}).get("after")
                 if not after:
                     break
+            time.sleep(_SEARCH_PACE_SEC)   # stay under HubSpot's ~4/s Search limit
         return [a for a in accounts if a.domain.strip().lower() not in existing]
 
     # --- the claim ----------------------------------------------------------
