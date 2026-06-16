@@ -8,7 +8,7 @@ import io
 
 CSV = (
     "company,domain,vertical,city,pagespeed_mobile,ads_active\n"
-    "Buckeye Industrial,buckeye.example,industrial_b2b,Cleveland,34,3\n"
+    "Buckeye Industrial,buckeye.example,industrial_manufacturing,Cleveland,34,3\n"
     "Lakeshore Dental,lakeshore.example,healthcare,Toledo,61,\n"
 )
 
@@ -38,19 +38,25 @@ def test_ingest_rejects_csv_without_domain(client, monkeypatch):
     assert r.status_code == 400
 
 
-def test_candidates_lists_closer_bound_with_signals(client, monkeypatch):
+def test_candidates_lists_all_ranked_with_route_badge(client, monkeypatch):
+    """Dump-and-sort: the queue surfaces EVERY net-new firm ranked best-first —
+    routing is a badge, not a gate. A 1-signal firm still shows (as nurture), it
+    just ranks below a 2-signal closer-bound firm."""
     _empty_book(monkeypatch)
     client.post("/api/ingest",
                 files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
     r = client.get("/api/candidates")
     assert r.status_code == 200
     cands = r.json()["candidates"]
-    domains = {c["domain"] for c in cands}
-    assert "buckeye.example" in domains          # 2 signals -> closer
-    assert "lakeshore.example" not in domains     # 1 signal -> nurture, not a candidate
+    domains = [c["domain"] for c in cands]
+    assert "buckeye.example" in domains            # 2 signals -> closer
+    assert "lakeshore.example" in domains          # 1 signal -> nurture, still shown
+    assert domains.index("buckeye.example") < domains.index("lakeshore.example")  # ranked
     buckeye = next(c for c in cands if c["domain"] == "buckeye.example")
-    assert buckeye["signals"]                      # has signal details
-    assert "outreach" in buckeye
+    lakeshore = next(c for c in cands if c["domain"] == "lakeshore.example")
+    assert buckeye["route"] == "closer"
+    assert lakeshore["route"] == "nurture"
+    assert buckeye["signals"] and "outreach" in buckeye
 
 
 def test_push_claims_selected_and_drops_them(client, monkeypatch):

@@ -46,7 +46,7 @@ def _row_from_account(a: Account) -> AccountRow:
 
 def _account_from_row(row: AccountRow) -> Account:
     a = Account(
-        name=row.name, domain=row.domain, vertical=Vertical(row.vertical),
+        name=row.name, domain=row.domain, vertical=Vertical.from_hubspot(row.vertical),
         linkedin_url=row.linkedin_url, city=row.city, state=row.state,
         extra=row.extra or {}, discovered_by=row.discovered_by,
         stage=Stage(row.stage), hubspot_id=row.hubspot_id,
@@ -85,11 +85,14 @@ def upsert_accounts(session: Session, accounts: list[Account]) -> None:
 
 
 def get_candidates(session: Session) -> list[Account]:
-    """Net-new closer-bound unpushed firms — the triage queue. (The DB only ever
-    holds net-new firms; ingest filters the book out before writing.)"""
+    """Net-new unpushed firms, ranked best-first — the triage queue. We surface the
+    WHOLE sorted list (dump-and-sort), not just closer-bound: routing is a badge +
+    sort hint, not a gate. The operator works top-down and picks what to push.
+    (The DB only ever holds net-new firms; ingest filters the book out before writing.)"""
     rows = session.query(AccountRow).filter(AccountRow.pushed.is_(False)).all()
     accounts = [_account_from_row(r) for r in rows]
-    return [a for a in accounts if a.route and a.route.effective == Route.CLOSER]
+    accounts.sort(key=lambda a: (a.score.total if a.score else 0.0), reverse=True)
+    return accounts
 
 
 def mark_pushed(session: Session, domain: str, hubspot_id: str) -> None:

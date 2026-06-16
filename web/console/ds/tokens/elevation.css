@@ -1,0 +1,26 @@
+/* ============================================================
+   Sixth City Marketing — Radii, borders & elevation.
+   Sturdy, squared geometry. Warm-tinted soft shadows.
+   ============================================================ */
+:root {
+  --radius-xs:  3px;
+  --radius-sm:  5px;
+  --radius-md:  8px;
+  --radius-lg:  12px;
+  --radius-xl:  16px;
+  --radius-2xl: 22px;
+  --radius-pill: 999px;
+
+  --border-w:    1px;
+  --border-w-2:  2px;
+
+  --shadow-xs: 0 1px 1px rgba(52, 38, 24, 0.05);
+  --shadow-sm: 0 1px 2px rgba(52, 38, 24, 0.06), 0 1px 3px rgba(52, 38, 24, 0.08);
+  --shadow-md: 0 2px 4px rgba(52, 38, 24, 0.05), 0 6px 16px rgba(52, 38, 24, 0.09);
+  --shadow-lg: 0 4px 8px rgba(52, 38, 24, 0.06), 0 16px 36px rgba(52, 38, 24, 0.12);
+  --shadow-xl: 0 24px 60px rgba(52, 38, 24, 0.18);
+  --shadow-inset: inset 0 1px 2px rgba(52, 38, 24, 0.07);
+
+  --gradient-hero: linear-gradient(135deg, #F0814E 0%, #E0532E 55%, #D9433C 100%);
+  --gradient-ember: linear-gradient(120deg, var(--orange-500), var(--coral-500));
+}

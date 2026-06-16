@@ -1,0 +1,109 @@
+/* ============================================================
+   Sixth City Marketing — Color tokens
+   Warm, approachable, results-driven. Coral-red is the primary
+   brand/action color; warm orange carries hero energy; charcoal
+   slate is the ink + dark UI; cream warms the surfaces.
+   ============================================================ */
+:root {
+  /* ---- Brand: Coral Red (primary action / brand accent) ---- */
+  --coral-50:  #FDF1EE;
+  --coral-100: #FBE2DD;
+  --coral-200: #F6C4BC;
+  --coral-300: #EE9A8F;
+  --coral-400: #E46A5F;
+  --coral-500: #D9433C;   /* PRIMARY — logo "MARKETING", icons, CTAs */
+  --coral-600: #C13730;
+  --coral-700: #9F2C27;
+  --coral-800: #7C231F;
+
+  /* ---- Brand: Warm Orange (hero energy / large surfaces) ---- */
+  --orange-50:  #FEF3EC;
+  --orange-100: #FCE3D5;
+  --orange-200: #F9C7AC;
+  --orange-300: #F4A37C;
+  --orange-400: #F2885E;
+  --orange-500: #ED6A3C;  /* hero / warm secondary */
+  --orange-600: #DA5530;
+  --orange-700: #B54225;
+
+  /* ---- Brand: Green (positive / "Review My Site" CTA) ---- */
+  --green-50:  #ECF7ED;
+  --green-100: #D6EFD9;
+  --green-200: #AEDFB4;
+  --green-400: #5BB869;
+  --green-500: #3DA24B;
+  --green-600: #2F8A3E;
+  --green-700: #246B30;
+
+  /* ---- Ink / Charcoal slate (text + dark surfaces) ---- */
+  --ink-900: #24272D;
+  --ink-800: #2C2F36;
+  --ink-700: #34373E;     /* logo charcoal / primary dark surface */
+  --ink-600: #454A53;
+  --ink-500: #5C626C;
+
+  /* ---- Warm neutral "Stone" scale (surfaces, borders, muted) ---- */
+  --white:     #FFFFFF;
+  --stone-50:  #FAF7F2;
+  --stone-100: #F4EEE7;
+  --stone-150: #ECE4DA;
+  --stone-200: #E3DACE;
+  --stone-300: #D2C7B9;
+  --stone-400: #B0A597;
+  --stone-500: #8B8175;
+  --stone-600: #6B6359;
+  --cream:     #F8F2EB;   /* signature warm section background */
+
+  /* ---- Heat / Priority scale (lead scoring engine) ---- */
+  --heat-hot:    #D9433C;  /* coral red  — highest priority */
+  --heat-warm:   #ED6A3C;  /* orange     — high */
+  --heat-medium: #F2A93B;  /* amber gold — medium */
+  --heat-cool:   #5B7D99;  /* steel blue — low */
+  --heat-cold:   #8B8175;  /* stone      — cold / archived */
+  --heat-hot-bg:    #FBE2DD;
+  --heat-warm-bg:   #FCE3D5;
+  --heat-medium-bg: #FBEDCF;
+  --heat-cool-bg:   #E2ECF2;
+  --heat-cold-bg:   #ECE4DA;
+
+  /* ---- Semantic status ---- */
+  --info:    #3E6E96;  --info-bg:    #E2ECF2;
+  --warning: #E0922A;  --warning-bg: #FBEDCF;
+  --danger:  #C12F2A;  --danger-bg:  #FBE2DD;  /* deeper than coral primary */
+  --success: #3DA24B;  --success-bg: #D6EFD9;
+
+  /* ===========  SEMANTIC ALIASES  =========== */
+  /* surfaces */
+  --surface-page:     var(--stone-50);
+  --surface-card:     var(--white);
+  --surface-cream:    var(--cream);
+  --surface-sunken:   var(--stone-100);
+  --surface-inverse:  var(--ink-700);
+  --surface-hover:    var(--stone-100);
+  --surface-selected: var(--coral-50);
+
+  /* text */
+  --text-strong:   var(--ink-900);
+  --text-body:     var(--ink-800);
+  --text-muted:    var(--stone-600);
+  --text-subtle:   var(--stone-500);
+  --text-inverse:  var(--cream);
+  --text-on-brand: #FFFFFF;
+  --text-link:     var(--coral-600);
+
+  /* borders */
+  --border-subtle:  var(--stone-200);
+  --border-default: var(--stone-300);
+  --border-strong:  var(--stone-400);
+  --border-focus:   var(--coral-500);
+
+  /* brand actions */
+  --action-primary:        var(--coral-500);
+  --action-primary-hover:  var(--coral-600);
+  --action-primary-press:  var(--coral-700);
+  --action-positive:       var(--green-500);
+  --action-positive-hover: var(--green-600);
+
+  /* focus ring */
+  --ring: 0 0 0 3px rgba(217, 67, 60, 0.30);
+}

@@ -23,7 +23,7 @@ from engine.jobs import find_accounts, score_accounts, route_accounts
 from engine.jobs import push_to_hubspot
 from engine.modules import draft_cold_email
 from engine.models import Route, Stage
-from engine.sources.clay_payload import ClayPayloadSource
+from engine.sources.clay_payload import ClayPayloadSource, has_domain_column
 
 
 class PushRequest(BaseModel):
@@ -53,17 +53,17 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/")
-def index():
-    return FileResponse(os.path.join(WEB_DIR, "triage.html"))
+# The console (designed ingestion-engine UI) is served by the StaticFiles mount at
+# the bottom of this file — its index.html is the app shell, with ds/ + app/ assets.
 
 
 @app.post("/api/ingest")
 async def ingest(file: UploadFile = File(...), session=Depends(db_session)):
     raw = (await file.read()).decode("utf-8")
     rows = list(csvmod.DictReader(io.StringIO(raw)))
-    if not rows or "domain" not in rows[0]:
-        raise HTTPException(status_code=400, detail="CSV must have a 'domain' column")
+    if not has_domain_column(rows):
+        raise HTTPException(status_code=400,
+                            detail="CSV must have a domain column (e.g. 'Domain', 'Website')")
 
     src = ClayPayloadSource(rows=rows)
     discovered = find_accounts.run(sources=[src])
@@ -86,15 +86,17 @@ async def ingest(file: UploadFile = File(...), session=Depends(db_session)):
 
 
 @app.get("/api/candidates")
-def candidates(session=Depends(db_session)):
+def candidates(session=Depends(db_session), limit: int = 250):
+    ranked = repo.get_candidates(session)   # already sorted best-first
     out = []
-    for a in repo.get_candidates(session):
+    for a in ranked[:limit]:                # cap: don't draft outreach for thousands
         outreach = draft_cold_email.draft(a)
         out.append({
             "domain": a.domain,
             "name": a.name,
             "city": a.city,
             "vertical": a.vertical.value,
+            "route": a.route.effective.value if a.route else None,
             "fit": a.score.fit if a.score else 0.0,
             "timing": a.score.timing if a.score else 0.0,
             "total": a.score.total if a.score else 0.0,
@@ -102,8 +104,7 @@ def candidates(session=Depends(db_session)):
             "signals": [{"kind": s.kind.value, "detail": s.detail} for s in a.signals],
             "outreach": {"subject": outreach.subject, "body": outreach.body},
         })
-    out.sort(key=lambda c: c["total"], reverse=True)
-    return {"candidates": out, "count": len(out)}
+    return {"candidates": out, "count": len(ranked), "shown": len(out)}
 
 
 @app.post("/api/push")
@@ -127,6 +128,12 @@ def push(req: PushRequest, session=Depends(db_session)):
     return {"pushed": results, "count": len(results), "scoreboard": dashboard.build()}
 
 
-# Serve the Claude Design app + assets under /design (presentation-layer pass).
+# Earlier vanilla design prototype, kept under /design.
 app.mount("/design", StaticFiles(directory=os.path.join(WEB_DIR, "design"), html=True),
           name="design")
+
+# The designed ingestion-engine console (Sixth City Marketing Design System) is the
+# product UI. Mounted LAST at "/" so the explicit /api/* routes above take precedence;
+# html=True serves console/index.html at "/" and resolves its ds/ + app/ assets.
+app.mount("/", StaticFiles(directory=os.path.join(WEB_DIR, "console"), html=True),
+          name="console")
