@@ -215,7 +215,21 @@ const FILTERS = [
 
 function IngestionEngine({ onSendToScoring, onRunIngest }) {
   const [filter, setFilter] = useStateI("all");
+  const [enriching, setEnriching] = useStateI(false);
+  const [enrichRemaining, setEnrichRemaining] = useStateI(null);
   const R = PEI.RUN;
+
+  async function runEnrichment() {
+    setEnriching(true);
+    let remaining = 1;
+    while (remaining > 0) {
+      const res = await PEI.enrichChunk(20);
+      remaining = res.remaining;
+      setEnrichRemaining(remaining);
+      await PEI.refresh();   // pull re-scored stream so the queue re-ranks live
+    }
+    setEnriching(false);
+  }
 
   const rows = useMemoI(() => PEI.STREAM.filter((a) => {
     if (filter === "all") return true;
@@ -246,6 +260,9 @@ function IngestionEngine({ onSendToScoring, onRunIngest }) {
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, flex: "none" }}>
           <BadgeI tone="green" variant="soft" dot>{R.netNew ? "Live" : "No run yet"}</BadgeI>
           <BtnI variant="secondary" size="sm" icon={<Ico.Refresh size={14} />} onClick={onRunIngest}>Run ingest</BtnI>
+          <BtnI variant="primary" size="sm" icon={<Ico.Gauge size={14} />} onClick={runEnrichment} disabled={enriching}>
+            {enriching ? ("Enriching… " + (enrichRemaining ?? "")) : "Run PageSpeed + audit"}
+          </BtnI>
         </div>
       </div>
 

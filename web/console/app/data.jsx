@@ -139,6 +139,11 @@ async function refresh() {
   return R;
 }
 
+async function enrichChunk(limit = 20) {
+  const r = await fetch("/api/enrich?limit=" + limit, { method: "POST" });
+  return r.json();   // { enriched, remaining }
+}
+
 async function ingestFile(file) {
   const fd = new FormData();
   fd.append("file", file);
@@ -152,7 +157,7 @@ async function ingestFile(file) {
 Object.assign(window.PE, {
   Vertical, SignalKind, RUN, STAGES, STATUS, ROLE,
   ACTIVE_SOURCES, ONDECK_SOURCES, STREAM,
-  siteHeat, srcLabel, srcIcon, refresh, ingestFile, LAST_INGEST: null,
+  siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, LAST_INGEST: null,
   ops: { name: "John Sammon", title: "Owner / Sixth City" },
   danny: { name: "Danny Cox", title: "Pipeline Ops" },
 });
