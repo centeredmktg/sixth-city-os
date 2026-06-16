@@ -20,6 +20,7 @@ from engine.db import repo
 from engine.db.base import make_engine, create_all, make_session_factory
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
+from engine.jobs import enrich as enrich_job
 from engine.jobs import push_to_hubspot
 from engine.modules import draft_cold_email
 from engine.models import Route, Stage
@@ -105,6 +106,14 @@ def candidates(session=Depends(db_session), limit: int = 250):
             "outreach": {"subject": outreach.subject, "body": outreach.body},
         })
     return {"candidates": out, "count": len(ranked), "shown": len(out)}
+
+
+@app.post("/api/enrich")
+def enrich(limit: int = 20, session=Depends(db_session)):
+    """Run one chunk of free enrichment (site audit + domain age + PageSpeed) over
+    not-yet-enriched accounts; re-scores them. Idempotent + resumable — the console
+    loops this until remaining == 0."""
+    return enrich_job.run(session, limit=limit)
 
 
 @app.post("/api/push")

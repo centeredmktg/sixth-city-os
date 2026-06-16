@@ -81,3 +81,15 @@ def test_push_claims_selected_and_drops_them(client, monkeypatch):
     # No longer a candidate after the claim.
     cands = client.get("/api/candidates").json()["candidates"]
     assert "buckeye.example" not in {c["domain"] for c in cands}
+
+
+def test_enrich_endpoint_returns_progress(client, monkeypatch):
+    _empty_book(monkeypatch)
+    import engine.jobs.enrich as enrichmod
+    monkeypatch.setattr(enrichmod, "default_sources", lambda: [])  # no network in test
+    csv = "Name,Domain\nAcme,acme.example\n"
+    client.post("/api/ingest", files={"file": ("c.csv", io.BytesIO(csv.encode()), "text/csv")})
+    r = client.post("/api/enrich?limit=10")
+    assert r.status_code == 200
+    body = r.json()
+    assert "enriched" in body and "remaining" in body
