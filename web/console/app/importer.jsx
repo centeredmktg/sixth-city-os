@@ -74,17 +74,37 @@ const IMP_CSS = `
 
 const fmtI = (n) => (n == null ? "—" : n.toLocaleString("en-US"));
 
-/* light client-side CSV parse for preview (not the ingest — the engine re-parses) */
+/* RFC4180-ish CSV parse for preview — handles quoted fields with embedded commas,
+   quotes, AND newlines (Clay exports wrap description text across lines, which a
+   naive split() miscounts as extra rows). The server (csv.DictReader) is still the
+   authority; this just gives an accurate count + clean preview. */
+function parseCsvRecords(text) {
+  const records = [];
+  let field = "", row = [], inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += c;
+    } else if (c === '"') { inQ = true; }
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); records.push(row); row = []; field = "";
+    } else field += c;
+  }
+  if (field.length || row.length) { row.push(field); records.push(row); }
+  // drop fully-empty trailing records
+  return records.filter((r) => r.some((v) => v && v.trim().length));
+}
+
 function parseCsv(text) {
-  const lines = text.replace(/\r/g, "").split("\n").filter((l) => l.trim().length);
-  if (!lines.length) return { headers: [], rows: [], count: 0, hasDomain: false };
-  const headers = lines[0].split(",").map((h) => h.trim());
-  const rows = lines.slice(1, 6).map((l) => l.split(","));
-  // Robust to quoted fields w/ embedded commas (naive split mangles them): look
-  // for a domain/website header token in the raw line. Advisory only — the server
-  // (csv.DictReader) is the authority and re-validates on ingest.
-  const hasDomain = /(^|,)\s*"?\s*(domain|website)\b/i.test(lines[0]);
-  return { headers, rows, count: lines.length - 1, hasDomain };
+  const recs = parseCsvRecords(text);
+  if (!recs.length) return { headers: [], rows: [], count: 0, hasDomain: false };
+  const headers = recs[0].map((h) => h.trim());
+  const data = recs.slice(1);
+  const hasDomain = headers.some((h) => ["domain", "company domain", "website", "website url", "domain name"].includes(h.toLowerCase()));
+  return { headers, rows: data.slice(0, 5), count: data.length, hasDomain };
 }
 
 const RUN_TASKS = [
@@ -125,7 +145,7 @@ function FileImporter({ onCancel, onComplete, onError }) {
 
   const rows = parsed ? parsed.count : null;
   const cols = parsed ? parsed.headers.length : 0;
-  const previewCols = parsed ? parsed.headers.slice(0, 6) : [];
+  const previewCols = parsed ? parsed.headers : [];   // show all columns (Domain is to the right); table scrolls horizontally
 
   return (
     <div className="pe-page">
