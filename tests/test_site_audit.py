@@ -1,5 +1,17 @@
-from engine.sources.site_audit import parse
+import pytest
+
+from engine.sources.site_audit import parse, _validate, _host_is_public, UnsafeURLError
 from engine.models import SignalKind
+
+
+def test_ssrf_guard_rejects_bad_scheme_and_internal_hosts():
+    with pytest.raises(UnsafeURLError):
+        _validate("ftp://example.com")            # only http/https allowed
+    with pytest.raises(UnsafeURLError):
+        _validate("http://localhost/")            # localhost
+    assert _host_is_public("127.0.0.1") is False  # loopback
+    assert _host_is_public("169.254.169.254") is False  # cloud metadata endpoint
+    assert _host_is_public("10.0.0.5") is False   # private range
 
 GOOD = ('<html><head><title>Acme Tool & Die — CNC Machining</title>'
         '<meta name="description" content="Precision CNC machining in Cleveland.">'

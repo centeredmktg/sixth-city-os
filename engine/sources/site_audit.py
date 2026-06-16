@@ -7,12 +7,22 @@ Doubles as the per-domain core for a future "free website audit" lead magnet.
 """
 from __future__ import annotations
 
+import ipaddress
 import re
+import socket
+from urllib.parse import urljoin, urlparse
 
 import requests
 
 from engine.models import Account, Signal, SignalKind
 from engine.sources.base import DataSource
+
+MAX_BYTES = 3 * 1024 * 1024  # cap homepage body at 3 MB (resource-exhaustion guard)
+_CGNAT = ipaddress.ip_network("100.64.0.0/10")
+
+
+class UnsafeURLError(Exception):
+    """Raised when a target URL fails the SSRF guard (bad scheme / non-public host)."""
 
 _AD_PIXELS = [
     (r"AW-\d", "Google Ads conversion tag"),
@@ -22,12 +32,61 @@ _AD_PIXELS = [
 _ANALYTICS = r"gtag\(|googletagmanager\.com|google-analytics\.com|analytics\.js|gtm\.js"
 
 
-def fetch(domain: str, timeout: int = 15) -> tuple[str, dict]:
-    """Side-effecting GET of the homepage. Returns (html, headers). Raises on
-    network error — the source's enrich() decides how to fail."""
+def _host_is_public(host: str) -> bool:
+    """SSRF guard: resolve `host` and return False if it's localhost/internal or any
+    resolved IP is private/loopback/link-local/CGNAT/reserved/multicast/unspecified
+    (blocks 169.254.169.254 cloud metadata, 10.x, 127.x, *.internal, etc.)."""
+    h = (host or "").strip().lower().rstrip(".")
+    if not h or h == "localhost" or h.endswith((".localhost", ".internal", ".local")):
+        return False
+    try:
+        infos = socket.getaddrinfo(h, None)
+    except socket.gaierror:
+        return False
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+                or ip.is_multicast or ip.is_unspecified or ip in _CGNAT):
+            return False
+    return True
+
+
+def _validate(url: str) -> str:
+    p = urlparse(url)
+    if p.scheme not in ("http", "https"):
+        raise UnsafeURLError(f"scheme {p.scheme!r} not allowed")
+    if not _host_is_public(p.hostname or ""):
+        raise UnsafeURLError(f"host {p.hostname!r} is not a public address")
+    return url
+
+
+def fetch(domain: str, timeout: int = 15, max_redirects: int = 3) -> tuple[str, dict]:
+    """SSRF-guarded, size-capped GET of the homepage. Only http/https; the host (and
+    every redirect hop) must resolve to a public IP; body capped at MAX_BYTES. Raises
+    UnsafeURLError / requests errors — the source's enrich() decides how to fail."""
     url = domain if domain.startswith("http") else f"https://{domain}"
-    r = requests.get(url, timeout=timeout, headers={"User-Agent": "sixth-city-pipeline-engine/1.0"})
-    return r.text or "", dict(r.headers)
+    for _ in range(max_redirects + 1):
+        _validate(url)
+        r = requests.get(url, timeout=timeout, stream=True, allow_redirects=False,
+                         headers={"User-Agent": "sixth-city-pipeline-engine/1.0"})
+        if r.is_redirect and r.headers.get("location"):
+            nxt = urljoin(url, r.headers["location"])
+            r.close()
+            url = nxt
+            continue
+        clen = r.headers.get("Content-Length")
+        if clen and clen.isdigit() and int(clen) > MAX_BYTES:
+            r.close()
+            raise UnsafeURLError("response exceeds size cap")
+        buf = bytearray()
+        for chunk in r.iter_content(chunk_size=65536):
+            buf.extend(chunk)
+            if len(buf) > MAX_BYTES:
+                break
+        headers = dict(r.headers)
+        r.close()
+        return bytes(buf).decode("utf-8", errors="replace"), headers
+    raise UnsafeURLError("too many redirects")
 
 
 def parse(html: str, headers: dict, url: str) -> list[Signal]:
