@@ -29,6 +29,7 @@ class AccountRow(Base):
     stage: Mapped[str] = mapped_column(String, default="discovered")
     hubspot_id: Mapped[str | None] = mapped_column(String, nullable=True)
     pushed: Mapped[bool] = mapped_column(Boolean, default=False)
+    enriched: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # score (engine.models.Score)
     fit: Mapped[float] = mapped_column(Float, default=0.0)
