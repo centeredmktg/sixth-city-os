@@ -53,9 +53,8 @@ def health():
     return {"status": "ok"}
 
 
-@app.get("/")
-def index():
-    return FileResponse(os.path.join(WEB_DIR, "triage.html"))
+# The console (designed ingestion-engine UI) is served by the StaticFiles mount at
+# the bottom of this file — its index.html is the app shell, with ds/ + app/ assets.
 
 
 @app.post("/api/ingest")
@@ -129,6 +128,12 @@ def push(req: PushRequest, session=Depends(db_session)):
     return {"pushed": results, "count": len(results), "scoreboard": dashboard.build()}
 
 
-# Serve the Claude Design app + assets under /design (presentation-layer pass).
+# Earlier vanilla design prototype, kept under /design.
 app.mount("/design", StaticFiles(directory=os.path.join(WEB_DIR, "design"), html=True),
           name="design")
+
+# The designed ingestion-engine console (Sixth City Marketing Design System) is the
+# product UI. Mounted LAST at "/" so the explicit /api/* routes above take precedence;
+# html=True serves console/index.html at "/" and resolves its ds/ + app/ assets.
+app.mount("/", StaticFiles(directory=os.path.join(WEB_DIR, "console"), html=True),
+          name="console")
