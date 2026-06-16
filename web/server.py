@@ -87,15 +87,17 @@ async def ingest(file: UploadFile = File(...), session=Depends(db_session)):
 
 
 @app.get("/api/candidates")
-def candidates(session=Depends(db_session)):
+def candidates(session=Depends(db_session), limit: int = 250):
+    ranked = repo.get_candidates(session)   # already sorted best-first
     out = []
-    for a in repo.get_candidates(session):
+    for a in ranked[:limit]:                # cap: don't draft outreach for thousands
         outreach = draft_cold_email.draft(a)
         out.append({
             "domain": a.domain,
             "name": a.name,
             "city": a.city,
             "vertical": a.vertical.value,
+            "route": a.route.effective.value if a.route else None,
             "fit": a.score.fit if a.score else 0.0,
             "timing": a.score.timing if a.score else 0.0,
             "total": a.score.total if a.score else 0.0,
@@ -103,8 +105,7 @@ def candidates(session=Depends(db_session)):
             "signals": [{"kind": s.kind.value, "detail": s.detail} for s in a.signals],
             "outreach": {"subject": outreach.subject, "body": outreach.body},
         })
-    out.sort(key=lambda c: c["total"], reverse=True)
-    return {"candidates": out, "count": len(out)}
+    return {"candidates": out, "count": len(ranked), "shown": len(out)}
 
 
 @app.post("/api/push")
