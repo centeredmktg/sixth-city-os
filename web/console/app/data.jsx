@@ -100,7 +100,7 @@ function mapCandidate(c) {
     vertical: c.vertical, city: c.city || "", state: "",
     src: siteSig && siteSig.source === "pagespeed" ? "pagespeed" : "clay",
     site: siteSig ? Math.round(siteSig.value) : null,
-    dedupe: "net_new", signalKinds: kinds,
+    dedupe: c.net_new === true ? "net_new" : (c.net_new === false ? "merged" : "pending"), signalKinds: kinds,
     route: c.route, band: c.band, total: c.total, fit: c.fit, timing: c.timing,
   };
 }
@@ -126,7 +126,9 @@ async function refresh() {
   } catch (e) { /* leave empty on failure */ }
   const li = window.PE.LAST_INGEST || {};
   const R = Object.assign({}, window.PE.RUN, {
-    netNew: total,
+    netNew: (j.counts && j.counts.net_new != null) ? j.counts.net_new : total,
+    inBook: j.counts ? j.counts.in_book : 0,
+    pending: j.counts ? j.counts.pending : 0,
     ingested: li.ingested != null ? li.ingested : total,
     signals: stream.reduce((a, s) => a + s.signalKinds.length, 0),
     scored: li.scored != null ? li.scored : total,

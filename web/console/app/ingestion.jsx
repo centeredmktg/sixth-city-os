@@ -209,7 +209,7 @@ function OnDeckCard({ s }) {
 const FILTERS = [
   { key: "all", label: "All" },
   { key: "net_new", label: "Net-new" },
-  { key: "merged", label: "Merged" },
+  { key: "merged", label: "In book" },
   { key: "pagespeed", label: "Fallback-scored" },
 ];
 
@@ -283,9 +283,9 @@ function IngestionEngine({ onSendToScoring, onRunIngest }) {
           <div className="ig-stat__note">Site quality, SEO gaps, and the public-signal moat — the "why now."</div>
         </div>
         <div className="ig-stat">
-          <div className="ig-stat__l"><Ico.GitMerge size={13} /> Already in book</div>
-          <div className="ig-stat__v">{fmt(R.merged)}</div>
-          <div className="ig-stat__note">Already in HubSpot — deduped on domain, never re-created.</div>
+          <div className="ig-stat__l"><Ico.GitMerge size={13} /> Already in your book</div>
+          <div className="ig-stat__v">{fmt(R.inBook)}</div>
+          <div className="ig-stat__note">Already in HubSpot — you don't get rev-share credit on these.</div>
         </div>
       </div>
 
