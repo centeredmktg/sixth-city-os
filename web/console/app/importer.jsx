@@ -107,11 +107,14 @@ function parseCsv(text) {
   return { headers, rows: data.slice(0, 5), count: data.length, hasDomain };
 }
 
+// Mirrors what /api/ingest actually does: parse -> normalize -> score/route ->
+// dedupe rows by domain -> store. The net-new check vs the HubSpot book is NOT
+// here — it runs later in the enrichment pass (don't claim it on this screen).
 const RUN_TASKS = [
   "Reading CSV & validating headers",
   "Normalizing domains & mapping industry → vertical",
   "Scoring (fit + timing) & routing",
-  "Deduping net-new vs the HubSpot book",
+  "Deduping rows by domain",
   "Storing the ranked triage queue",
 ];
 
@@ -137,9 +140,16 @@ function FileImporter({ onCancel, onComplete, onError }) {
     if (step !== "running") return;
     let alive = true;
     const iv = setInterval(() => { if (alive) setTaskIdx((i) => Math.min(i + 1, RUN_TASKS.length - 1)); }, 600);
+    const fail = (err) => { if (!alive) return; clearInterval(iv); setStep("configure"); onError && onError(err); };
     PIM.ingestFile(file)
-      .then((res) => { if (!alive) return; clearInterval(iv); setTaskIdx(RUN_TASKS.length); setTimeout(() => onComplete(res), 500); })
-      .catch((err) => { if (!alive) return; clearInterval(iv); setStep("configure"); onError && onError(err); });
+      .then((res) => {
+        if (!alive) return;
+        clearInterval(iv); setTaskIdx(RUN_TASKS.length);
+        // onComplete (finishImport) is async — if it rejects (e.g. the post-ingest
+        // refresh fails) DON'T strand the user on the all-green screen: surface it.
+        setTimeout(() => { Promise.resolve().then(() => onComplete(res)).catch(fail); }, 500);
+      })
+      .catch(fail);
     return () => { alive = false; clearInterval(iv); };
   }, [step]);
 
@@ -230,7 +240,7 @@ function FileImporter({ onCancel, onComplete, onError }) {
             <IcoM.Cpu size={24} style={{ color: "var(--coral-500)" }} />
             <h3>Ingesting {file ? file.name : "your list"}</h3>
           </div>
-          <p className="im-running__sub">The engine is working the batch — this includes a batched HubSpot dedupe, so a big list takes a few seconds.</p>
+          <p className="im-running__sub">The engine is normalizing, scoring, and ranking the batch. The net-new HubSpot check runs later in the enrichment pass.</p>
           <div className="im-prog"><div className="im-prog__fill" style={{ width: Math.min(100, ((taskIdx + 1) / RUN_TASKS.length) * 100) + "%" }} /></div>
           {RUN_TASKS.map((t, i) => {
             const state = i < taskIdx ? "done" : i === taskIdx ? "now" : "wait";

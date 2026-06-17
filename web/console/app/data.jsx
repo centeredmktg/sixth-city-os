@@ -84,12 +84,15 @@ window.PE = window.PE || {};
 /* live state — populated by refresh() */
 const RUN = { id: "live", label: "Live", ranAt: "—", ingested: null, netNew: null, merged: 0, signals: null, scored: null };
 const STREAM = [];
+// Order mirrors the engine: dedupe net-new SECOND (right after ingest) so the
+// expensive enrichment only ever touches firms not already in the HubSpot book
+// (enrich.py checks HubSpot first; in-book rows are skipped before any fetch).
 const STAGES = [
-  { key: "discover", icon: "Database", label: "List ingested", value: null, sub: "pulled into the engine", meta: "CSV ignition" },
-  { key: "enrich",   icon: "Gauge",    label: "Site quality",  value: null, sub: "PageSpeed gate (free)",   meta: "batched pass" },
-  { key: "signals",  icon: "Layers",   label: "Signals",       value: null, sub: "site + moat",             meta: "per firm" },
-  { key: "dedupe",   icon: "GitMerge", label: "Deduped",       value: 0,    sub: "net-new only",            meta: "domain key" },
-  { key: "ready",    icon: "Cpu",      label: "Net-new ready", value: null, sub: "ranked for triage",       meta: "→ Triage Board" },
+  { key: "discover", icon: "Database", label: "List ingested",  value: null, sub: "pulled into the engine",  meta: "CSV ignition" },
+  { key: "dedupe",   icon: "GitMerge", label: "Net-new",        value: null, sub: "not in your HubSpot book", meta: "dedupe · domain key" },
+  { key: "enrich",   icon: "Gauge",    label: "Site quality",   value: null, sub: "net-new only (free)",      meta: "batched pass" },
+  { key: "signals",  icon: "Layers",   label: "Signals",        value: null, sub: "net-new only",             meta: "site + moat" },
+  { key: "ready",    icon: "Cpu",      label: "Ready to score", value: null, sub: "ranked for triage",        meta: "→ Triage Board" },
 ];
 
 function mapCandidate(c) {
@@ -106,21 +109,25 @@ function mapCandidate(c) {
 }
 
 function rebuildStages(R) {
+  // dedupe is stage 2 — net-new survivors flow forward; in-book firms drop out
+  // here (no rev-share credit) and never reach enrichment.
+  const inBookSub = R.inBook ? (R.inBook.toLocaleString("en-US") + " already in book — skipped") : "not in your HubSpot book";
   window.PE.STAGES = [
-    { key: "discover", icon: "Database", label: "List ingested", value: R.ingested, sub: "pulled into the engine", meta: "CSV ignition" },
-    { key: "enrich",   icon: "Gauge",    label: "Site quality",  value: R.ingested, sub: "PageSpeed gate (free)",   meta: "batched pass" },
-    { key: "signals",  icon: "Layers",   label: "Signals",       value: R.signals,  sub: "site + moat",             meta: "per firm" },
-    { key: "dedupe",   icon: "GitMerge", label: "Deduped",       value: R.merged,   sub: "net-new only",            meta: "domain key" },
-    { key: "ready",    icon: "Cpu",      label: "Net-new ready", value: R.netNew,   sub: "ranked for triage",       meta: "→ Triage Board" },
+    { key: "discover", icon: "Database", label: "List ingested",  value: R.ingested, sub: "pulled into the engine", meta: "CSV ignition" },
+    { key: "dedupe",   icon: "GitMerge", label: "Net-new",        value: R.netNew,   sub: inBookSub,                meta: "dedupe · domain key" },
+    { key: "enrich",   icon: "Gauge",    label: "Site quality",   value: R.netNew,   sub: "net-new only (free)",    meta: "batched pass" },
+    { key: "signals",  icon: "Layers",   label: "Signals",        value: R.signals,  sub: "net-new only",           meta: "site + moat" },
+    { key: "ready",    icon: "Cpu",      label: "Ready to score", value: R.netNew,   sub: "ranked for triage",      meta: "→ Triage Board" },
   ];
 }
 
 async function refresh() {
   let stream = [];
   let total = 0;
+  let j = {};   // hoisted: read below (j.counts) outside the try; a const here would ReferenceError and reject refresh()
   try {
     const r = await fetch("/api/candidates");
-    const j = await r.json();
+    j = await r.json();
     stream = (j.candidates || []).map(mapCandidate);
     total = j.count != null ? j.count : stream.length;
   } catch (e) { /* leave empty on failure */ }
