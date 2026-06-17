@@ -107,14 +107,14 @@ function parseCsv(text) {
   return { headers, rows: data.slice(0, 5), count: data.length, hasDomain };
 }
 
-// Mirrors what /api/ingest actually does: parse -> normalize -> score/route ->
-// dedupe rows by domain -> store. The net-new check vs the HubSpot book is NOT
-// here — it runs later in the enrichment pass (don't claim it on this screen).
+// Mirrors what /api/ingest actually does, in order: parse -> dedupe rows by domain
+// -> check HubSpot for existing companies (the net-new gate, runs on upload) ->
+// score/route -> store. Free site/PageSpeed enrichment is the separate next pass.
 const RUN_TASKS = [
   "Reading CSV & validating headers",
-  "Normalizing domains & mapping industry → vertical",
-  "Scoring (fit + timing) & routing",
   "Deduping rows by domain",
+  "Checking HubSpot — which companies you already have",
+  "Scoring (fit + timing) & routing",
   "Storing the ranked triage queue",
 ];
 
@@ -240,7 +240,7 @@ function FileImporter({ onCancel, onComplete, onError }) {
             <IcoM.Cpu size={24} style={{ color: "var(--coral-500)" }} />
             <h3>Ingesting {file ? file.name : "your list"}</h3>
           </div>
-          <p className="im-running__sub">The engine is normalizing, scoring, and ranking the batch. The net-new HubSpot check runs later in the enrichment pass.</p>
+          <p className="im-running__sub">Deduping rows, checking each domain against your HubSpot book, then scoring and ranking the net-new firms. Site audit + PageSpeed run in the next (enrichment) pass.</p>
           <div className="im-prog"><div className="im-prog__fill" style={{ width: Math.min(100, ((taskIdx + 1) / RUN_TASKS.length) * 100) + "%" }} /></div>
           {RUN_TASKS.map((t, i) => {
             const state = i < taskIdx ? "done" : i === taskIdx ? "now" : "wait";

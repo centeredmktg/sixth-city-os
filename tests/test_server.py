@@ -22,6 +22,23 @@ def test_ingest_stores_all_rows_fast(client, monkeypatch):
     assert body["stored"] == 2
 
 
+def test_ingest_flags_in_book_via_hubspot_on_upload(client, monkeypatch):
+    """The net-new check runs AT UPLOAD: a domain already in the HubSpot book is
+    flagged net_new=False (no rev-share credit) the moment the list lands; the rest
+    are net-new — before any enrichment spend."""
+    import web.server as server
+    monkeypatch.setattr(server.HubSpotClient, "existing_domains",
+                        lambda self, domains: {"buckeye.example"})
+    r = client.post("/api/ingest",
+                    files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["in_book"] == 1 and body["net_new"] == 1
+    cands = {c["domain"]: c for c in client.get("/api/candidates").json()["candidates"]}
+    assert cands["buckeye.example"]["net_new"] is False   # already in CRM
+    assert cands["lakeshore.example"]["net_new"] is True   # net-new -> creditable
+
+
 def test_ingest_rejects_csv_without_domain(client, monkeypatch):
     bad = "company,city\nNoDomain,Cleveland\n"
     r = client.post("/api/ingest",
@@ -54,8 +71,11 @@ def test_candidates_lists_all_ranked_with_route_badge(client, monkeypatch):
     assert "net_new" in counts
     assert "in_book" in counts
     assert "pending" in counts
-    # All ingested rows have net_new=None (pending) since enrich hasn't run
-    assert counts["pending"] == 2
+    # Net-new is decided AT INGEST now (the HubSpot check runs on upload). With no
+    # token the client is in dry mode -> existing book is empty -> every row is
+    # net-new, nothing pending.
+    assert counts["net_new"] == 2
+    assert counts["pending"] == 0
     # Each candidate dict has the net_new field
     for c in body["candidates"]:
         assert "net_new" in c

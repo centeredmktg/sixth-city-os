@@ -109,15 +109,18 @@ function mapCandidate(c) {
 }
 
 function rebuildStages(R) {
-  // dedupe is stage 2 — net-new survivors flow forward; in-book firms drop out
-  // here (no rev-share credit) and never reach enrichment.
+  // Dedupe is stage 2 and runs AT UPLOAD (row dedupe by domain + HubSpot CRM check),
+  // so Net-new is a real number the moment a list lands. Site quality + Signals come
+  // from the deferred free-enrichment pass over net-new only — show "—" (null) until
+  // it runs, so a fresh upload never reads as "0 signals / 0 site quality".
+  const enrichRan = (R.enriched || 0) > 0;
   const inBookSub = R.inBook ? (R.inBook.toLocaleString("en-US") + " already in book — skipped") : "not in your HubSpot book";
   window.PE.STAGES = [
-    { key: "discover", icon: "Database", label: "List ingested",  value: R.ingested, sub: "pulled into the engine", meta: "CSV ignition" },
-    { key: "dedupe",   icon: "GitMerge", label: "Net-new",        value: R.netNew,   sub: inBookSub,                meta: "dedupe · domain key" },
-    { key: "enrich",   icon: "Gauge",    label: "Site quality",   value: R.netNew,   sub: "net-new only (free)",    meta: "batched pass" },
-    { key: "signals",  icon: "Layers",   label: "Signals",        value: R.signals,  sub: "net-new only",           meta: "site + moat" },
-    { key: "ready",    icon: "Cpu",      label: "Ready to score", value: R.netNew,   sub: "ranked for triage",      meta: "→ Triage Board" },
+    { key: "discover", icon: "Database", label: "List ingested",  value: R.ingested,                   sub: "pulled into the engine", meta: "CSV ignition" },
+    { key: "dedupe",   icon: "GitMerge", label: "Net-new",        value: R.netNew,                     sub: inBookSub,                meta: "row + HubSpot" },
+    { key: "enrich",   icon: "Gauge",    label: "Site quality",   value: enrichRan ? R.netNew : null,  sub: enrichRan ? "net-new only (free)" : "run enrichment", meta: "PageSpeed · paced" },
+    { key: "signals",  icon: "Layers",   label: "Signals",        value: enrichRan ? R.signals : null, sub: enrichRan ? "net-new only" : "run enrichment", meta: "site + moat" },
+    { key: "ready",    icon: "Cpu",      label: "Ready to score", value: R.netNew,                     sub: "ranked for triage",      meta: "→ Triage Board" },
   ];
 }
 
@@ -136,6 +139,7 @@ async function refresh() {
     netNew: (j.counts && j.counts.net_new != null) ? j.counts.net_new : total,
     inBook: j.counts ? j.counts.in_book : 0,
     pending: j.counts ? j.counts.pending : 0,
+    enriched: j.counts ? (j.counts.enriched || 0) : 0,
     ingested: li.ingested != null ? li.ingested : total,
     signals: stream.reduce((a, s) => a + s.signalKinds.length, 0),
     scored: li.scored != null ? li.scored : total,
