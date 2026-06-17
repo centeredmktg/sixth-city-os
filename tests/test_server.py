@@ -48,6 +48,58 @@ def test_candidates_lists_all_ranked_with_route_badge(client, monkeypatch):
     assert lakeshore["route"] == "nurture"
     assert buckeye["signals"] and "outreach" in buckeye
 
+    body = r.json()
+    assert "counts" in body
+    counts = body["counts"]
+    assert "net_new" in counts
+    assert "in_book" in counts
+    assert "pending" in counts
+    # All ingested rows have net_new=None (pending) since enrich hasn't run
+    assert counts["pending"] == 2
+    # Each candidate dict has the net_new field
+    for c in body["candidates"]:
+        assert "net_new" in c
+
+
+def test_candidates_net_new_ranks_before_pending_and_in_book(client, monkeypatch):
+    """Net-new rows sort first, then pending, then in_book — each group by score desc."""
+    from engine.db.base import make_engine, create_all, make_session_factory
+    from engine.db.models import AccountRow
+    import web.server as server
+
+    eng = make_engine("sqlite:///:memory:")
+    create_all(eng)
+    s = make_session_factory(eng)()
+
+    # net_new=True, high score
+    s.add(AccountRow(domain="nn-high.com", name="NN High", net_new=True,
+                     total=80.0, band="A", fit=80.0, timing=80.0))
+    # net_new=None, medium score
+    s.add(AccountRow(domain="pending.com", name="Pending", net_new=None,
+                     total=60.0, band="B", fit=60.0, timing=60.0))
+    # net_new=False, high score (in book — shouldn't be first despite score)
+    s.add(AccountRow(domain="inbook.com", name="In Book", net_new=False,
+                     total=90.0, band="A", fit=90.0, timing=90.0))
+    s.commit()
+
+    server.app.dependency_overrides[server.db_session] = lambda: s
+    from fastapi.testclient import TestClient
+    c = TestClient(server.app)
+    r = c.get("/api/candidates")
+    server.app.dependency_overrides.clear()
+
+    assert r.status_code == 200
+    body = r.json()
+    domains = [x["domain"] for x in body["candidates"]]
+    assert domains[0] == "nn-high.com"    # net_new=True ranks first
+    assert domains[1] == "pending.com"    # None ranks second
+    assert domains[2] == "inbook.com"     # False ranks last
+
+    counts = body["counts"]
+    assert counts["net_new"] == 1
+    assert counts["pending"] == 1
+    assert counts["in_book"] == 1
+
 
 def test_push_claims_selected_and_drops_them(client, monkeypatch):
     import web.server as server
