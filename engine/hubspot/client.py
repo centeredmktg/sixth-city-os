@@ -62,28 +62,14 @@ class HubSpotClient:
         return {}
 
     # --- net-new gate -------------------------------------------------------
-    def find_company_id_by_domain(self, domain: str) -> str | None:
-        """Authoritative 'if exists' check: returns the HubSpot company id if this
-        domain is already in the book, else None. THE net-new gate."""
+    def existing_domains(self, domains: list[str]) -> set[str]:
+        """Batched HubSpot search: returns the lowercased set of domains already in
+        the book. Dry mode -> empty set (pretend book is empty). One POST per 100
+        domains; paced to stay under HubSpot's ~4/s Search limit."""
         if self._dry:
-            return None  # stub: pretend the book is empty
-        body = {
-            "filterGroups": [{"filters": [
-                {"propertyName": "domain", "operator": "EQ", "value": domain},
-            ]}],
-            "properties": ["domain"],
-            "limit": 1,
-        }
-        results = self._post("/crm/v3/objects/companies/search", body).get("results", [])
-        return results[0]["id"] if results else None
-
-    def filter_net_new(self, accounts: list[Account]) -> list[Account]:
-        """Pre-filter: drop anything already in the book BEFORE enrichment. push()
-        re-checks at write time as the authoritative guard. BATCHED — one search per
-        100 domains (a 4,600-firm dump = ~46 calls, seconds), not one per firm."""
-        if self._dry:
-            return accounts  # stub: pretend the book is empty -> all net-new
-        domains = [a.domain for a in accounts if a.domain]
+            return set()
+        if not domains:
+            return set()
         existing: set[str] = set()
         for i in range(0, len(domains), 100):
             chunk = domains[i:i + 100]
@@ -106,8 +92,32 @@ class HubSpotClient:
                 after = data.get("paging", {}).get("next", {}).get("after")
                 if not after:
                     break
-            time.sleep(_SEARCH_PACE_SEC)   # stay under HubSpot's ~4/s Search limit
-        return [a for a in accounts if a.domain.strip().lower() not in existing]
+            time.sleep(_SEARCH_PACE_SEC)
+        return existing
+
+    def find_company_id_by_domain(self, domain: str) -> str | None:
+        """Authoritative 'if exists' check: returns the HubSpot company id if this
+        domain is already in the book, else None. THE net-new gate."""
+        if self._dry:
+            return None  # stub: pretend the book is empty
+        body = {
+            "filterGroups": [{"filters": [
+                {"propertyName": "domain", "operator": "EQ", "value": domain},
+            ]}],
+            "properties": ["domain"],
+            "limit": 1,
+        }
+        results = self._post("/crm/v3/objects/companies/search", body).get("results", [])
+        return results[0]["id"] if results else None
+
+    def filter_net_new(self, accounts: list[Account]) -> list[Account]:
+        """Pre-filter: drop anything already in the book BEFORE enrichment. push()
+        re-checks at write time as the authoritative guard. BATCHED — one search per
+        100 domains (a 4,600-firm dump = ~46 calls, seconds), not one per firm."""
+        if self._dry:
+            return accounts  # stub: pretend the book is empty -> all net-new
+        ex = self.existing_domains([a.domain for a in accounts if a.domain])
+        return [a for a in accounts if a.domain.strip().lower() not in ex]
 
     # --- the claim ----------------------------------------------------------
     def push(self, account: Account, outreach: Outreach) -> str:
