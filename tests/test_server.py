@@ -13,25 +13,16 @@ CSV = (
 )
 
 
-def _empty_book(monkeypatch):
-    import web.server as server
-    monkeypatch.setattr(server.HubSpotClient, "filter_net_new",
-                        lambda self, accounts: accounts)
-
-
-def test_ingest_writes_net_new_and_reports_counts(client, monkeypatch):
-    _empty_book(monkeypatch)
+def test_ingest_stores_all_rows_fast(client, monkeypatch):
     r = client.post("/api/ingest",
                     files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
     assert r.status_code == 200
     body = r.json()
     assert body["ingested"] == 2
-    assert body["closer_bound"] >= 1   # Buckeye has 2 signals -> closer
-    assert body["dropped_not_net_new"] == 0
+    assert body["stored"] == 2
 
 
 def test_ingest_rejects_csv_without_domain(client, monkeypatch):
-    _empty_book(monkeypatch)
     bad = "company,city\nNoDomain,Cleveland\n"
     r = client.post("/api/ingest",
                     files={"file": ("bad.csv", io.BytesIO(bad.encode()), "text/csv")})
@@ -42,7 +33,6 @@ def test_candidates_lists_all_ranked_with_route_badge(client, monkeypatch):
     """Dump-and-sort: the queue surfaces EVERY net-new firm ranked best-first —
     routing is a badge, not a gate. A 1-signal firm still shows (as nurture), it
     just ranks below a 2-signal closer-bound firm."""
-    _empty_book(monkeypatch)
     client.post("/api/ingest",
                 files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
     r = client.get("/api/candidates")
@@ -60,7 +50,6 @@ def test_candidates_lists_all_ranked_with_route_badge(client, monkeypatch):
 
 
 def test_push_claims_selected_and_drops_them(client, monkeypatch):
-    _empty_book(monkeypatch)
     import web.server as server
     # Fake the claim: return a deterministic id, no HubSpot call.
     monkeypatch.setattr(server.HubSpotClient, "push",
@@ -84,7 +73,6 @@ def test_push_claims_selected_and_drops_them(client, monkeypatch):
 
 
 def test_enrich_endpoint_returns_progress(client, monkeypatch):
-    _empty_book(monkeypatch)
     import engine.jobs.enrich as enrichmod
     monkeypatch.setattr(enrichmod, "default_sources", lambda: [])  # no network in test
     csv = "Name,Domain\nAcme,acme.example\n"
