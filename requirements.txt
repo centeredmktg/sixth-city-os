@@ -1,11 +1,7 @@
-# Stub deps. Nothing imported yet — pinned as the wiring lands.
-requests              # data-source + HubSpot HTTP calls
-# anthropic           # AI module calls (draft-cold-email, scoring rationale)
-python-dotenv         # load .env in dev
-# hubspot-api-client  # official HubSpot SDK
-# sqlalchemy          # when DATABASE_URL goes live
-fastapi               # web service for ingest/triage/push
-uvicorn[standard]     # ASGI server (prod start command)
-python-multipart      # multipart/form-data for CSV upload
-sqlalchemy            # ORM / persistence
-psycopg[binary]       # Postgres driver (Railway DATABASE_URL)
+requests
+python-dotenv
+fastapi
+uvicorn[standard]
+python-multipart
+sqlalchemy
+psycopg[binary]

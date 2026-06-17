@@ -20,6 +20,7 @@ from engine.db import repo
 from engine.db.base import make_engine, create_all, make_session_factory
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
+from engine.jobs import enrich as enrich_job
 from engine.jobs import push_to_hubspot
 from engine.modules import draft_cold_email
 from engine.models import Route, Stage
@@ -70,26 +71,39 @@ async def ingest(file: UploadFile = File(...), session=Depends(db_session)):
     scored = score_accounts.run(discovered)
     routed = route_accounts.run(scored, auto_confirm=False)
 
-    client = HubSpotClient()
-    net_new = client.filter_net_new(routed)
-    repo.upsert_accounts(session, net_new)
+    repo.upsert_accounts(session, routed)
 
-    closer_bound = sum(1 for a in net_new if a.route and a.route.effective == Route.CLOSER)
-    parked = sum(1 for a in net_new if a.route and a.route.effective == Route.NURTURE)
     return {
         "ingested": len(rows),
-        "scored": len(scored),
-        "closer_bound": closer_bound,
-        "parked_nurture": parked,
-        "dropped_not_net_new": len(routed) - len(net_new),
+        "stored": len(routed),
     }
 
 
 @app.get("/api/candidates")
 def candidates(session=Depends(db_session), limit: int = 250):
-    ranked = repo.get_candidates(session)   # already sorted best-first
+    all_unpushed = repo.get_candidates(session)   # sorted by score desc
+
+    # Counts over the full unpushed set
+    n_net_new = sum(1 for a in all_unpushed if a.net_new is True)
+    n_in_book = sum(1 for a in all_unpushed if a.net_new is False)
+    n_pending = sum(1 for a in all_unpushed if a.net_new is None)
+
+    # Sort: net-new first, then pending, then in_book — each group by score desc
+    def _rank_key(a):
+        nn = a.net_new
+        if nn is True:
+            group = 0
+        elif nn is None:
+            group = 1
+        else:
+            group = 2
+        score = -(a.score.total if a.score else 0.0)
+        return (group, score)
+
+    ranked = sorted(all_unpushed, key=_rank_key)
+
     out = []
-    for a in ranked[:limit]:                # cap: don't draft outreach for thousands
+    for a in ranked[:limit]:
         outreach = draft_cold_email.draft(a)
         out.append({
             "domain": a.domain,
@@ -101,10 +115,24 @@ def candidates(session=Depends(db_session), limit: int = 250):
             "timing": a.score.timing if a.score else 0.0,
             "total": a.score.total if a.score else 0.0,
             "band": a.score.band if a.score else "R",
+            "net_new": a.net_new,
             "signals": [{"kind": s.kind.value, "detail": s.detail} for s in a.signals],
             "outreach": {"subject": outreach.subject, "body": outreach.body},
         })
-    return {"candidates": out, "count": len(ranked), "shown": len(out)}
+    return {
+        "candidates": out,
+        "count": len(ranked),
+        "shown": len(out),
+        "counts": {"net_new": n_net_new, "in_book": n_in_book, "pending": n_pending},
+    }
+
+
+@app.post("/api/enrich")
+def enrich(limit: int = 20, session=Depends(db_session)):
+    """Run one chunk of free enrichment (site audit + domain age + PageSpeed) over
+    not-yet-enriched accounts; re-scores them. Idempotent + resumable — the console
+    loops this until remaining == 0."""
+    return enrich_job.run(session, limit=limit)
 
 
 @app.post("/api/push")

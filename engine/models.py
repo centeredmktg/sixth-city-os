@@ -166,6 +166,7 @@ class Account:
     offer: Optional["Offer"] = None
     stage: Stage = Stage.DISCOVERED
     hubspot_id: Optional[str] = None
+    net_new: Optional[bool] = None
     discovered_by: str = ""     # source registry name — provenance for attribution
 
 

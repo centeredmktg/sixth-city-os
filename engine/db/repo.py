@@ -20,7 +20,7 @@ def _row_from_account(a: Account) -> AccountRow:
         domain=a.domain, name=a.name, vertical=a.vertical.value, city=a.city,
         state=a.state, linkedin_url=a.linkedin_url, discovered_by=a.discovered_by,
         extra=a.extra or {}, stage=a.stage.value, hubspot_id=a.hubspot_id,
-        pushed=a.stage == Stage.PUSHED,
+        pushed=a.stage == Stage.PUSHED, net_new=a.net_new,
     )
     if a.score:
         row.fit = a.score.fit
@@ -49,7 +49,7 @@ def _account_from_row(row: AccountRow) -> Account:
         name=row.name, domain=row.domain, vertical=Vertical.from_hubspot(row.vertical),
         linkedin_url=row.linkedin_url, city=row.city, state=row.state,
         extra=row.extra or {}, discovered_by=row.discovered_by,
-        stage=Stage(row.stage), hubspot_id=row.hubspot_id,
+        stage=Stage(row.stage), hubspot_id=row.hubspot_id, net_new=row.net_new,
     )
     a.signals = [
         Signal(kind=SignalKind(s.kind), source=s.source, value=s.value, detail=s.detail,
