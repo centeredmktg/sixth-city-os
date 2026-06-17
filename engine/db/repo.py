@@ -72,6 +72,10 @@ def _account_from_row(row: AccountRow) -> Account:
 def upsert_accounts(session: Session, accounts: list[Account]) -> None:
     """Insert or replace by domain. Preserves pushed/hubspot_id so re-ingest never
     un-claims a firm already in HubSpot."""
+    # Collapse duplicate domains within the batch — Clay/lookalike exports list the
+    # same company on multiple rows, and domain is the PK; without this the batch
+    # INSERT trips a UniqueViolation (accounts_pkey). Last occurrence wins.
+    accounts = list({a.domain: a for a in accounts if a.domain}.values())
     for a in accounts:
         existing = session.get(AccountRow, a.domain)
         new_row = _row_from_account(a)
