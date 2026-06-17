@@ -118,9 +118,10 @@ function rebuildStages(R) {
 async function refresh() {
   let stream = [];
   let total = 0;
+  let j = {};   // hoisted: read below (j.counts) outside the try; a const here would ReferenceError and reject refresh()
   try {
     const r = await fetch("/api/candidates");
-    const j = await r.json();
+    j = await r.json();
     stream = (j.candidates || []).map(mapCandidate);
     total = j.count != null ? j.count : stream.length;
   } catch (e) { /* leave empty on failure */ }
