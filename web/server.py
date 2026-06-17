@@ -30,6 +30,23 @@ from engine.sources.clay_payload import ClayPayloadSource, has_domain_column
 class PushRequest(BaseModel):
     domains: list[str]
 
+
+class RevalidateStaticFiles(StaticFiles):
+    """StaticFiles that tells browsers to ALWAYS revalidate (Cache-Control: no-cache).
+
+    This is a no-build app — index.html pulls app/*.jsx straight off disk and Babel
+    transforms them in the browser. Without this, browsers heuristically cache those
+    .jsx files (no explicit Cache-Control), so a deploy ships new code but users keep
+    running the old UI until a hard refresh. `no-cache` = cache but revalidate every
+    time; StaticFiles still answers conditional requests with 304 when unchanged, so
+    it stays cheap. Fresh code the moment a deploy lands."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers.setdefault("Cache-Control", "no-cache")
+        return response
+
+
 app = FastAPI(title="Sixth City Pipeline Engine")
 
 # One engine/session-factory per process, built at import from DATABASE_URL.
@@ -163,5 +180,5 @@ app.mount("/design", StaticFiles(directory=os.path.join(WEB_DIR, "design"), html
 # The designed ingestion-engine console (Sixth City Marketing Design System) is the
 # product UI. Mounted LAST at "/" so the explicit /api/* routes above take precedence;
 # html=True serves console/index.html at "/" and resolves its ds/ + app/ assets.
-app.mount("/", StaticFiles(directory=os.path.join(WEB_DIR, "console"), html=True),
+app.mount("/", RevalidateStaticFiles(directory=os.path.join(WEB_DIR, "console"), html=True),
           name="console")
