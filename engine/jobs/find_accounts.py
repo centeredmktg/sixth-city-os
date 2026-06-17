@@ -14,15 +14,19 @@ from engine.modules import trigger_scanner
 from engine.sources import registry
 
 
-def run() -> list[Account]:
+def run(sources: list | None = None) -> list[Account]:
+    srcs = sources if sources is not None else registry.REGISTRY
+    account_srcs = [s for s in srcs if s.provides_accounts]
+    signal_srcs = [s for s in srcs if s.provides_signals]
+
     found: list[Account] = []
-    for src in registry.account_sources():
+    for src in account_srcs:
         found.extend(src.discover())
 
     # Attach signals. Clay's score comes free; PageSpeed fallback fires only for
     # accounts still missing a site-quality signal (see PageSpeedSource.enrich).
     for account in found:
-        for src in registry.signal_sources():
+        for src in signal_srcs:
             account.signals.extend(src.enrich(account))
 
     # Layer in event-driven triggers (hiring, reviews) via the trigger-scanner skill

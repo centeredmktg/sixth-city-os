@@ -5,6 +5,9 @@ __pycache__/
 venv/
 .venv/
 
+# Local SQLite dev DB (Postgres in prod via DATABASE_URL)
+*.db
+
 # OS
 .DS_Store
 *.log

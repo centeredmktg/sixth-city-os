@@ -1,6 +1,7 @@
-# Stub deps. Nothing imported yet — pinned as the wiring lands.
-requests              # data-source + HubSpot HTTP calls
-# anthropic           # AI module calls (draft-cold-email, scoring rationale)
-python-dotenv         # load .env in dev
-# hubspot-api-client  # official HubSpot SDK
-# sqlalchemy          # when DATABASE_URL goes live
+requests
+python-dotenv
+fastapi
+uvicorn[standard]
+python-multipart
+sqlalchemy
+psycopg[binary]

@@ -12,21 +12,69 @@ Stub status: real shapes, no persistence yet. Swap dataclasses for ORM models
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional
 
 
+# Raw LinkedIn/Clay `industry` -> canonical vertical, ordered keyword rules (first
+# match wins; specific exclusions before the broad 'manufactur'). Clay's free enrich
+# emits LinkedIn industry (256+ values), NOT our taxonomy, so the engine maps it at
+# ingestion. Present-but-unmatched -> UNKNOWN (neutral, never a penalty).
+_INDUSTRY_RULES = [
+    ("automotive",               r"motor vehicle|automotive|vehicle repair"),
+    ("healthcare",               r"health care|hospital|medical|dental|dentist|wellness|mental health|veterinar|pharmaceutic|biotech|diagnostic laborator|home health|alternative medicine"),
+    ("legal",                    r"law practice|legal"),
+    ("real_estate",              r"real estate"),
+    ("education",                r"higher education|education|e-learning|vocational training|primary and secondary"),
+    ("retail_ecommerce",         r"retail|wholesale|consumer goods|apparel|fashion|restaurant|food|beverage|luxury goods|furniture|sporting goods|grocer"),
+    ("industrial_manufacturing", r"manufactur|machinery|industrial|fabricat|\bmetal|plastics|chemical|aerospace|aviation|semiconductor|mining|oil and gas|paper and forest|textile|packaging and container|glass, ceramics|robotic|defense|wood product|rubber|foundr|tooling|measuring and control|electrical equipment|primary metal|maritime"),
+    ("home_construction",        r"construction|contractor|facilities|landscaping|hvac|janitorial|fire protection|repair and maintenance|building"),
+    ("professional_b2b",         r"advertising|marketing|public relations|communications|\bdesign|media|printing|photography|events|broadcast|publishing|animation|writing|software|information technology|technology, information|consulting|professional services|staffing|recruiting|financial|accounting|banking|insurance|investment|capital markets|human resources|telecommunications|data infrastructure|computer|research services|outsourcing|executive search|strategic management|engineering services|civil engineering|architecture"),
+]
+
+
 class Vertical(str, Enum):
-    """The verticals Sixth City already wins in (design spec §4). UNKNOWN covers
-    arbitrary lists fed through the eval machine that didn't arrive pre-tagged."""
-    INDUSTRIAL_B2B = "industrial_b2b"
-    HOME_SERVICES = "home_services"
-    HEALTHCARE = "healthcare"
-    LEGAL = "legal"
-    ECOMMERCE = "ecommerce"
-    UNKNOWN = "unknown"
+    """Ten canonical verticals mapped from HubSpot Industry tags (design spec §4).
+    UNKNOWN covers accounts that arrived without a recognizable tag — never a
+    penalty (historical unknowns closed ~24%, above baseline).
+    Use `Vertical.from_hubspot(tag)` to map raw HubSpot strings."""
+
+    INDUSTRIAL_MANUFACTURING = "industrial_manufacturing"
+    REAL_ESTATE               = "real_estate"
+    EDUCATION                 = "education"
+    PROFESSIONAL_B2B          = "professional_b2b"
+    HEALTHCARE                = "healthcare"
+    AUTOMOTIVE                = "automotive"
+    LEGAL                     = "legal"
+    HOME_CONSTRUCTION         = "home_construction"
+    RETAIL_ECOMMERCE          = "retail_ecommerce"
+    UNKNOWN                   = "unknown"
+
+    @classmethod
+    def from_hubspot(cls, value: str | None) -> "Vertical":
+        """Map a HubSpot `vertical` field value (canonical snake_case) to the enum.
+        Blank/unrecognized -> UNKNOWN. Never raises — ingestion must be blank-safe.
+        The raw-industry -> canonical rollup lives in Clay (export) + the backfill's
+        taxonomy.py, NOT here (Approach A: the engine reads canonical values)."""
+        try:
+            return cls((value or "").strip().lower())
+        except (ValueError, AttributeError):
+            return cls.UNKNOWN   # non-str input (int/NaN) also degrades, never raises
+
+    @classmethod
+    def from_industry(cls, raw: str | None) -> "Vertical":
+        """Map a raw LinkedIn/Clay `industry` string to a canonical Vertical via
+        keyword rules (_INDUSTRY_RULES). Blank or present-but-unmatched -> UNKNOWN."""
+        t = (str(raw) if raw is not None else "").strip().lower()
+        if not t:
+            return cls.UNKNOWN
+        for value, pattern in _INDUSTRY_RULES:
+            if re.search(pattern, t):
+                return cls(value)
+        return cls.UNKNOWN
 
 
 class SignalKind(str, Enum):
@@ -118,6 +166,7 @@ class Account:
     offer: Optional["Offer"] = None
     stage: Stage = Stage.DISCOVERED
     hubspot_id: Optional[str] = None
+    net_new: Optional[bool] = None
     discovered_by: str = ""     # source registry name — provenance for attribution
 
 

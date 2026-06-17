@@ -1,0 +1,136 @@
+/* ============================================================
+   Ingestion Engine — shell + mount. LIVE: refreshes the triage
+   stream from /api/candidates on mount and after each import.
+   ============================================================ */
+const { useState: useStateApp, useEffect: useEffectApp } = React;
+const P = window.PE;
+const { Avatar: AvatarApp } = window.SixthCityMarketingDesignSystem_4d5a9e;
+
+const APP_CSS = `
+.pe-toast{ position:fixed; bottom:24px; left:50%; transform:translateX(-50%) translateY(20px);
+  background:var(--ink-900); color:#fff; padding:12px 18px; border-radius:var(--radius-md); box-shadow:var(--shadow-lg);
+  display:flex; align-items:center; gap:11px; font-weight:700; font-size:var(--text-sm); z-index:80;
+  opacity:0; pointer-events:none; transition:opacity .2s, transform .2s; }
+.pe-toast--on{ opacity:1; transform:translateX(-50%) translateY(0); }
+.pe-toast svg{ color:var(--green-400); }
+.pe-toast b{ color:var(--orange-400); }
+.pe-toast--err b{ color:#fff; }
+.pe-toast--err svg{ color:var(--coral-400); }
+`;
+(function(){ if(document.getElementById("pe-app-css"))return; const s=document.createElement("style"); s.id="pe-app-css"; s.textContent=APP_CSS; document.head.appendChild(s); })();
+
+function Sidebar({ view, onNav, netNew }) {
+  const NAV = [
+    { id: "ingestion", label: "Ingestion", icon: P.Icons.Database, count: netNew },
+    { id: "queue", label: "Morning Queue", icon: P.Icons.Sunrise },
+    { id: "triage", label: "Triage Board", icon: P.Icons.Route, count: netNew },
+    { id: "scoreboard", label: "Scoreboard", icon: P.Icons.Scale },
+    { id: "accounts", label: "Accounts", icon: P.Icons.Building },
+  ];
+  return (
+    <aside className="pe-side">
+      <div className="pe-side__brand">
+        <img className="pe-side__logo" src="ds/assets/logo-knockout.png" alt="Sixth City Marketing" />
+        <div className="pe-side__product">
+          <P.Icons.Cpu size={14} stroke={2.4} />
+          <span className="scm-overline">Pipeline Engine</span>
+        </div>
+      </div>
+      <nav className="pe-side__nav">
+        <div className="pe-side__label">Workspace</div>
+        {NAV.map((n) => {
+          const on = view === n.id;
+          return (
+            <button key={n.id} className={"pe-nav" + (on ? " pe-nav--on" : "")} onClick={() => onNav(n.id)}>
+              <n.icon size={18} />
+              <span>{n.label}</span>
+              {n.count != null && <span className="pe-nav__count">{n.count}</span>}
+            </button>
+          );
+        })}
+      </nav>
+      <div className="pe-side__foot">
+        <div className="pe-who">
+          <AvatarApp name={P.danny.name} size="sm" tone="orange" status="online" />
+          <div>
+            <div className="pe-who__name">{P.danny.name}</div>
+            <div className="pe-who__role">{P.danny.title}</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function Topbar({ title, sub }) {
+  return (
+    <header className="pe-top">
+      <div>
+        <div className="pe-top__title">{title}</div>
+        {sub && <div className="pe-top__sub">{sub}</div>}
+      </div>
+      <div className="pe-top__spacer" />
+      <div className="pe-top__search">
+        <P.Icons.Search size={16} />
+        <input placeholder="Search accounts…" />
+      </div>
+      <button className="pe-iconbtn" title="Notifications">
+        <P.Icons.Bell size={18} />
+        <span className="pe-iconbtn__dot" />
+      </button>
+    </header>
+  );
+}
+
+function App() {
+  const [view, setView] = useStateApp("ingestion");
+  const [mode, setMode] = useStateApp("run");   // run | import
+  const [toast, setToast] = useStateApp(null);
+  const [tick, setTick] = useStateApp(0);        // bump to re-render after a live refresh
+
+  // initial load — pull the live triage stream
+  useEffectApp(() => { P.refresh().then(() => setTick((t) => t + 1)); }, []);
+
+  useEffectApp(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 3600);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  useEffectApp(() => { document.querySelector(".pe-scroll")?.scrollTo(0, 0); }, [mode]);
+
+  const finishImport = async (result) => {
+    await P.refresh();
+    setMode("run");
+    setTick((t) => t + 1);
+    const r = result || {};
+    setToast({ msg: <span>Ingest complete — <b>{(r.scored ?? P.RUN.netNew) || 0}</b> firms scored, ranked on the board</span> });
+  };
+
+  const importError = (err) => setToast({ err: true, msg: <span>Ingest failed — {String(err.message || err)}</span> });
+
+  const nav = (v) => { setView(v); setMode(v === "ingestion" ? "run" : "run"); };
+  const importing = mode === "import";
+
+  return (
+    <div className="pe-app">
+      <Sidebar view={view} onNav={nav} netNew={P.RUN.netNew} />
+      <div className="pe-main">
+        <Topbar
+          title={importing ? "Import a list" : "Ingestion Engine"}
+          sub={importing ? "Run a Clay export — or any CSV — through the machine" : "Where every account enters the pipeline"}
+        />
+        <div className="pe-scroll">
+          {importing
+            ? <P.FileImporter onCancel={() => setMode("run")} onComplete={finishImport} onError={importError} />
+            : <P.IngestionEngine onSendToScoring={() => {}} onRunIngest={() => setMode("import")} />}
+        </div>
+      </div>
+      <div className={"pe-toast" + (toast ? " pe-toast--on" : "") + (toast && toast.err ? " pe-toast--err" : "")}>
+        {toast && <React.Fragment><P.Icons.CheckCheck size={17} />{toast.msg}</React.Fragment>}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("pe-root")).render(<App />);

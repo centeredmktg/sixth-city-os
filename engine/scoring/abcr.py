@@ -16,7 +16,27 @@ starting point — tune them against real Sixth City close data once it exists.
 from __future__ import annotations
 
 from engine import geo
-from engine.models import Account, Score, SignalKind
+from engine.models import Account, Score, SignalKind, Vertical
+
+
+# Vertical fit weights — from the full 2017–2026 Sales-Pipeline win analysis
+# (deal-terms repo: analysis/clay-tam-spec.md). The old code added a flat +12 for
+# ANY known vertical, scoring Real Estate (27% win) the same as Retail (6%). These
+# bonuses spread that out by how much better than the 19.3% baseline each vertical
+# historically closes. UNKNOWN stays neutral-positive: unlabeled accounts closed at
+# ~24% historically, so missing a tag is never a penalty.
+VERTICAL_FIT_BONUS = {
+    Vertical.INDUSTRIAL_MANUFACTURING: 16,  # ~25% win — the spine
+    Vertical.REAL_ESTATE:              16,  # ~27% win
+    Vertical.EDUCATION:                15,  # ~24% win
+    Vertical.PROFESSIONAL_B2B:         13,  # ~22% win (software/IT/consulting)
+    Vertical.HEALTHCARE:               10,  # ~17% win — high value, slower
+    Vertical.AUTOMOTIVE:                8,  # 14% overall, but auto×SEO ~30%
+    Vertical.LEGAL:                     8,  # ~14% — rare, but fast + high-value
+    Vertical.HOME_CONSTRUCTION:         7,  # ~14% (construction) — volume trap
+    Vertical.RETAIL_ECOMMERCE:          2,  # ~6% — proven friction
+    Vertical.UNKNOWN:                  10,  # neutral-positive; unlabeled closed ~24%
+}
 
 
 # --- Fit: does this account look like Sixth City's kind of client? -----------
@@ -24,8 +44,7 @@ def _fit(account: Account) -> float:
     """0-100. Pre-enrichment fit: vertical match + locale. Real version adds
     employee count, revenue band, locale tightness."""
     base = 55.0
-    if account.vertical != account.vertical.UNKNOWN:
-        base += 12  # matches a vertical Sixth City wins in
+    base += VERTICAL_FIT_BONUS.get(account.vertical, 10)  # win-rate-weighted (see above)
     if account.state in ("OH",):
         base += 10  # in the six-city footprint
     if account.linkedin_url:
