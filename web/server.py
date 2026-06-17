@@ -18,6 +18,7 @@ from pydantic import BaseModel
 from engine.attribution import dashboard
 from engine.db import repo
 from engine.db.base import make_engine, create_all, make_session_factory
+from engine.db.models import AccountRow
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
 from engine.jobs import enrich as enrich_job
@@ -88,11 +89,23 @@ async def ingest(file: UploadFile = File(...), session=Depends(db_session)):
     scored = score_accounts.run(discovered)
     routed = route_accounts.run(scored, auto_confirm=False)
 
+    # Net-new check runs NOW, as part of the upload — to the operator it IS step 1:
+    # "is this already in the book?" is the rev-share gate (credit only on net-new), so
+    # we surface it immediately, not in a later pass. Batched (one HubSpot Search per
+    # 100 domains, paced + 429-retried), so a few-thousand-row list resolves in seconds
+    # inside the request. The slow free-signal enrichment stays deferred to /api/enrich.
+    # Dry mode (no token) -> empty set -> everything reads net-new.
+    existing = HubSpotClient().existing_domains([a.domain for a in routed if a.domain])
+    for a in routed:
+        a.net_new = (a.domain.strip().lower() not in existing) if a.domain else None
+
     repo.upsert_accounts(session, routed)
 
     return {
         "ingested": len(rows),
         "stored": len(routed),
+        "net_new": sum(1 for a in routed if a.net_new is True),
+        "in_book": sum(1 for a in routed if a.net_new is False),
     }
 
 
@@ -104,6 +117,11 @@ def candidates(session=Depends(db_session), limit: int = 250):
     n_net_new = sum(1 for a in all_unpushed if a.net_new is True)
     n_in_book = sum(1 for a in all_unpushed if a.net_new is False)
     n_pending = sum(1 for a in all_unpushed if a.net_new is None)
+    # How many have been through the free-signal enrichment pass — lets the UI show
+    # site-quality/signals as "pending" until enrichment runs (net-new is known at
+    # ingest; signals are not).
+    n_enriched = (session.query(AccountRow)
+                  .filter(AccountRow.pushed.is_(False), AccountRow.enriched.is_(True)).count())
 
     # Sort: net-new first, then pending, then in_book — each group by score desc
     def _rank_key(a):
@@ -140,7 +158,8 @@ def candidates(session=Depends(db_session), limit: int = 250):
         "candidates": out,
         "count": len(ranked),
         "shown": len(out),
-        "counts": {"net_new": n_net_new, "in_book": n_in_book, "pending": n_pending},
+        "counts": {"net_new": n_net_new, "in_book": n_in_book, "pending": n_pending,
+                   "enriched": n_enriched},
     }
 
 
