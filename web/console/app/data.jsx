@@ -102,7 +102,7 @@ function mapCandidate(c) {
     id: c.domain, name: c.name || c.domain, domain: c.domain,
     vertical: c.vertical, city: c.city || "", state: "",
     src: siteSig && siteSig.source === "pagespeed" ? "pagespeed" : "clay",
-    site: siteSig ? Math.round(siteSig.value) : null,
+    site: siteSig && Number.isFinite(siteSig.value) ? Math.round(siteSig.value) : null,
     dedupe: c.net_new === true ? "net_new" : (c.net_new === false ? "merged" : "pending"), signalKinds: kinds,
     route: c.route, band: c.band, total: c.total, fit: c.fit, timing: c.timing,
   };
@@ -164,6 +164,18 @@ async function enrichChunk(limit = 20) {
   return r.json();   // { enriched, remaining }
 }
 
+/* Confirm the operator's routing call and push the selected firms into HubSpot.
+   The server re-checks each domain at claim time, so only net-new ones are created. */
+async function pushDomains(domains) {
+  const r = await fetch("/api/push", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domains }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || ("Push failed (" + r.status + ")"));
+  return j;   // { pushed, count, ... }
+}
+
 async function ingestFile(file) {
   const fd = new FormData();
   fd.append("file", file);
@@ -177,7 +189,7 @@ async function ingestFile(file) {
 Object.assign(window.PE, {
   Vertical, SignalKind, RUN, STAGES, STATUS, ROLE,
   ACTIVE_SOURCES, ONDECK_SOURCES, STREAM,
-  siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, LAST_INGEST: null,
+  siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, pushDomains, LAST_INGEST: null,
   ops: { name: "John Sammon", title: "Owner / Sixth City" },
   danny: { name: "Danny Cox", title: "Pipeline Ops" },
 });

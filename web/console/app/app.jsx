@@ -28,7 +28,7 @@ function Sidebar({ view, onNav, netNew }) {
   const NAV = [
     { id: "ingestion", label: "Ingestion", icon: P.Icons.Database, count: netNew },
     { id: "queue", label: "Morning Queue", icon: P.Icons.Sunrise, soon: true },
-    { id: "triage", label: "Triage Board", icon: P.Icons.Route, soon: true },
+    { id: "triage", label: "Triage Board", icon: P.Icons.Route, count: netNew },
     { id: "scoreboard", label: "Scoreboard", icon: P.Icons.Scale, soon: true },
     { id: "accounts", label: "Accounts", icon: P.Icons.Building, soon: true },
   ];
@@ -125,21 +125,33 @@ function App() {
 
   const importError = (err) => setToast({ err: true, msg: <span>Ingest failed — {String(err.message || err)}</span> });
 
-  const nav = (v) => { setView(v); setMode(v === "ingestion" ? "run" : "run"); };
+  const triageConfirmed = (n) => {
+    P.refresh().then(() => setTick((t) => t + 1));
+    setToast({ msg: <span><b>{n}</b> confirmed → pushed to HubSpot</span> });
+  };
+  const pushError = (err) => setToast({ err: true, msg: <span>Push failed — {String(err.message || err)}</span> });
+
+  const nav = (v) => { setView(v); setMode("run"); };
   const importing = mode === "import";
+  const titles = {
+    triage: ["Triage Board", "Confirm or override routing — the human-in-the-loop gate"],
+    ingestion: ["Ingestion Engine", "Where every account enters the pipeline"],
+  };
+  const [title, sub] = importing
+    ? ["Import a list", "Run a Clay export — or any CSV — through the machine"]
+    : (titles[view] || titles.ingestion);
 
   return (
     <div className="pe-app">
       <Sidebar view={view} onNav={nav} netNew={P.RUN.netNew} />
       <div className="pe-main">
-        <Topbar
-          title={importing ? "Import a list" : "Ingestion Engine"}
-          sub={importing ? "Run a Clay export — or any CSV — through the machine" : "Where every account enters the pipeline"}
-        />
+        <Topbar title={title} sub={sub} />
         <div className="pe-scroll">
           {importing
             ? <P.FileImporter onCancel={() => setMode("run")} onComplete={finishImport} onError={importError} />
-            : <P.IngestionEngine onSendToScoring={() => {}} onRunIngest={() => setMode("import")} />}
+            : view === "triage"
+              ? <P.TriageBoard onConfirmed={triageConfirmed} onError={pushError} />
+              : <P.IngestionEngine onSendToScoring={() => {}} onRunIngest={() => setMode("import")} />}
         </div>
       </div>
       <div className={"pe-toast" + (toast ? " pe-toast--on" : "") + (toast && toast.err ? " pe-toast--err" : "")}>
