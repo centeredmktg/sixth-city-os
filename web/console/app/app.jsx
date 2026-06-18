@@ -16,16 +16,21 @@ const APP_CSS = `
 .pe-toast b{ color:var(--orange-400); }
 .pe-toast--err b{ color:#fff; }
 .pe-toast--err svg{ color:var(--coral-400); }
+.pe-nav--soon{ opacity:.45; cursor:not-allowed; }
+.pe-nav--soon:hover{ background:transparent; }
+.pe-nav__soon{ margin-left:auto; font-family:var(--font-mono); font-size:9px; text-transform:uppercase;
+  letter-spacing:.06em; color:var(--text-subtle); border:1px solid var(--border-subtle);
+  border-radius:99px; padding:1px 7px; }
 `;
 (function(){ if(document.getElementById("pe-app-css"))return; const s=document.createElement("style"); s.id="pe-app-css"; s.textContent=APP_CSS; document.head.appendChild(s); })();
 
 function Sidebar({ view, onNav, netNew }) {
   const NAV = [
     { id: "ingestion", label: "Ingestion", icon: P.Icons.Database, count: netNew },
-    { id: "queue", label: "Morning Queue", icon: P.Icons.Sunrise },
-    { id: "triage", label: "Triage Board", icon: P.Icons.Route, count: netNew },
-    { id: "scoreboard", label: "Scoreboard", icon: P.Icons.Scale },
-    { id: "accounts", label: "Accounts", icon: P.Icons.Building },
+    { id: "queue", label: "Morning Queue", icon: P.Icons.Sunrise, soon: true },
+    { id: "triage", label: "Triage Board", icon: P.Icons.Route, soon: true },
+    { id: "scoreboard", label: "Scoreboard", icon: P.Icons.Scale, soon: true },
+    { id: "accounts", label: "Accounts", icon: P.Icons.Building, soon: true },
   ];
   return (
     <aside className="pe-side">
@@ -40,6 +45,17 @@ function Sidebar({ view, onNav, netNew }) {
         <div className="pe-side__label">Workspace</div>
         {NAV.map((n) => {
           const on = view === n.id;
+          // Unbuilt screens are disabled with a "soon" pill — visible (so the roadmap
+          // reads) but non-navigable, so the nav never dead-ends on a blank screen.
+          if (n.soon) {
+            return (
+              <button key={n.id} className="pe-nav pe-nav--soon" disabled title="Coming soon">
+                <n.icon size={18} />
+                <span>{n.label}</span>
+                <span className="pe-nav__soon">soon</span>
+              </button>
+            );
+          }
           return (
             <button key={n.id} className={"pe-nav" + (on ? " pe-nav--on" : "")} onClick={() => onNav(n.id)}>
               <n.icon size={18} />
