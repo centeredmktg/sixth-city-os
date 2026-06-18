@@ -270,7 +270,7 @@ function IngestionEngine({ onSendToScoring, onRunIngest }) {
         <div className="ig-stat ig-stat--feature">
           <div className="ig-stat__l"><Ico.Cpu size={13} /> Net-new ready to score</div>
           <div className="ig-stat__v">{fmt(R.netNew)}</div>
-          <div className="ig-stat__note">Deduped against HubSpot — these aren't in your book yet. The clean batch the scoring job picks up next.</div>
+          <div className="ig-stat__note">Fresh prospects — not in your CRM yet. The ranked batch to work next.</div>
         </div>
         <div className="ig-stat">
           <div className="ig-stat__l"><Ico.DownloadCloud size={13} /> Ingested this run</div>
@@ -285,7 +285,7 @@ function IngestionEngine({ onSendToScoring, onRunIngest }) {
         <div className="ig-stat">
           <div className="ig-stat__l"><Ico.GitMerge size={13} /> Already in your book</div>
           <div className="ig-stat__v">{fmt(R.inBook)}</div>
-          <div className="ig-stat__note">Already in HubSpot — you don't get rev-share credit on these.</div>
+          <div className="ig-stat__note">Already in your CRM — existing accounts, not new prospects to chase.</div>
         </div>
       </div>
 
