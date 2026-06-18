@@ -42,7 +42,12 @@ class Config:
 
     @property
     def dry_run(self) -> bool:
-        """No HubSpot token = scaffold mode: log what we WOULD do, write nothing."""
+        """Write nothing to HubSpot — log what we WOULD do — when EITHER no token is
+        set OR DRY_RUN is explicitly truthy. The explicit override is a safety latch:
+        local/test runs load .env (which has a real token), so without it any push
+        test would write straight to the client's production CRM. DRY_RUN=1 forces dry."""
+        if os.getenv("DRY_RUN", "").strip().lower() in ("1", "true", "yes", "on"):
+            return True
         return not self.hubspot_token
 
 
