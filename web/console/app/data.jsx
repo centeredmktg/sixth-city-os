@@ -56,7 +56,7 @@ const ACTIVE_SOURCES = [
     note: "Free site-quality gate. Runs as a batched pass over ingested domains (rate-limited), lifting bad-site firms on timing." },
   { id: "hubspot", name: "HubSpot", icon: "Briefcase", role: "record", status: "wired",
     provides: "Book of record + net-new gate", accounts: null, signals: null, lastSync: "live",
-    note: "Dedupe target (batched domain search) + the machine-sourced scoreboard. Net-new only ever reaches the queue." },
+    note: "Checks each domain against your book (batched search) so only net-new prospects — not existing accounts — reach the queue." },
 ];
 const ONDECK_SOURCES = [
   { id: "adyntel", name: "Adyntel (ads active)", icon: "Activity", role: "signal", status: "evaluate",
@@ -114,10 +114,17 @@ function rebuildStages(R) {
   // from the deferred free-enrichment pass over net-new only — show "—" (null) until
   // it runs, so a fresh upload never reads as "0 signals / 0 site quality".
   const enrichRan = (R.enriched || 0) > 0;
-  const inBookSub = R.inBook ? (R.inBook.toLocaleString("en-US") + " already in book — skipped") : "not in your HubSpot book";
+  const pending = R.pending || 0;
+  // With dedupe-at-upload a fresh ingest leaves nothing pending. If rows ARE pending
+  // (e.g. a list ingested before that shipped, being back-filled by enrichment), say
+  // so — otherwise Net-new reads as final when it's only "checked so far".
+  const dedupeSub = pending > 0
+    ? (pending.toLocaleString("en-US") + " still to check — re-ingest or run enrichment")
+    : (R.inBook ? (R.inBook.toLocaleString("en-US") + " already in your CRM — skipped")
+                : "none in your CRM — all net-new");
   window.PE.STAGES = [
     { key: "discover", icon: "Database", label: "List ingested",  value: R.ingested,                   sub: "pulled into the engine", meta: "CSV ignition" },
-    { key: "dedupe",   icon: "GitMerge", label: "Net-new",        value: R.netNew,                     sub: inBookSub,                meta: "row + HubSpot" },
+    { key: "dedupe",   icon: "GitMerge", label: "Net-new",        value: R.netNew,                     sub: dedupeSub,                meta: "row + HubSpot" },
     { key: "enrich",   icon: "Gauge",    label: "Site quality",   value: enrichRan ? R.netNew : null,  sub: enrichRan ? "net-new only (free)" : "run enrichment", meta: "PageSpeed · paced" },
     { key: "signals",  icon: "Layers",   label: "Signals",        value: enrichRan ? R.signals : null, sub: enrichRan ? "net-new only" : "run enrichment", meta: "site + moat" },
     { key: "ready",    icon: "Cpu",      label: "Ready to score", value: R.netNew,                     sub: "ranked for triage",      meta: "→ Triage Board" },
