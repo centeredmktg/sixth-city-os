@@ -108,6 +108,7 @@ function mapCandidate(c) {
     route: c.route, band: c.band, total: c.total, fit: c.fit, timing: c.timing,
     netNew: c.net_new, stage: c.stage, scoreRationale: c.score_rationale, routeConfirmed: c.route_confirmed,
     inMarket: c.in_market || "unknown", inMarketWhy: c.in_market_reason || "",
+    pursued: c.pursued || false,
     outreach: c.outreach || null,
   };
 }
@@ -173,6 +174,23 @@ async function fetchScoreboard() {
   return r.json();
 }
 
+/* Commit to an opportunity -> find & enrich the decision-makers (Apollo). */
+async function pursueDomains(domains) {
+  const r = await fetch("/api/pursue", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domains }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || ("Pursue failed (" + r.status + ")"));
+  return j;   // { pursued: [{domain, contacts_found, contacts:[...]}], apollo_configured }
+}
+
+async function fetchContacts(domain) {
+  const r = await fetch("/api/contacts?domain=" + encodeURIComponent(domain));
+  const j = await r.json().catch(() => ({}));
+  return j.contacts || [];
+}
+
 /* Confirm the operator's routing call and push the selected firms into HubSpot.
    The server re-checks each domain at claim time, so only net-new ones are created. */
 async function pushDomains(domains) {
@@ -198,7 +216,8 @@ async function ingestFile(file) {
 Object.assign(window.PE, {
   Vertical, SignalKind, RUN, STAGES, STATUS, ROLE,
   ACTIVE_SOURCES, ONDECK_SOURCES, STREAM,
-  siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, pushDomains, fetchScoreboard, LAST_INGEST: null,
+  siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, pushDomains, fetchScoreboard,
+  pursueDomains, fetchContacts, LAST_INGEST: null,
   ops: { name: "John Sammon", title: "Owner / Sixth City" },
   danny: { name: "Danny Cox", title: "Pipeline Ops" },
 });

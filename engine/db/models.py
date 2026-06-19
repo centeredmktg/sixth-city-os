@@ -31,6 +31,7 @@ class AccountRow(Base):
     pushed: Mapped[bool] = mapped_column(Boolean, default=False)
     enriched: Mapped[bool] = mapped_column(Boolean, default=False)
     net_new: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
+    pursued: Mapped[bool] = mapped_column(Boolean, default=False)   # operator committed -> contacts sourced
 
     # score (engine.models.Score)
     fit: Mapped[float] = mapped_column(Float, default=0.0)
@@ -49,6 +50,25 @@ class AccountRow(Base):
     signals: Mapped[list["SignalRow"]] = relationship(
         back_populates="account", cascade="all, delete-orphan"
     )
+    contacts: Mapped[list["ContactRow"]] = relationship(
+        back_populates="account", cascade="all, delete-orphan"
+    )
+
+
+class ContactRow(Base):
+    """A decision-maker at a pursued company (Apollo). Sourced only after 'Pursue'."""
+    __tablename__ = "contacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    account_domain: Mapped[str] = mapped_column(ForeignKey("accounts.domain"))
+    name: Mapped[str] = mapped_column(String, default="")
+    title: Mapped[str] = mapped_column(String, default="")
+    email: Mapped[str] = mapped_column(String, default="")
+    linkedin_url: Mapped[str] = mapped_column(String, default="")
+    seniority: Mapped[str] = mapped_column(String, default="")
+    source: Mapped[str] = mapped_column(String, default="apollo")
+
+    account: Mapped["AccountRow"] = relationship(back_populates="contacts")
 
 
 class SignalRow(Base):

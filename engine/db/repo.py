@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from engine.db.models import AccountRow, SignalRow
+from engine.db.models import AccountRow, SignalRow, ContactRow
 from engine.models import (
-    Account, Signal, SignalKind, Vertical, Score, RouteDecision, Route, Stage,
+    Account, Signal, SignalKind, Vertical, Score, RouteDecision, Route, Stage, Contact,
 )
 
 
@@ -20,7 +20,7 @@ def _row_from_account(a: Account) -> AccountRow:
         domain=a.domain, name=a.name, vertical=a.vertical.value, city=a.city,
         state=a.state, linkedin_url=a.linkedin_url, discovered_by=a.discovered_by,
         extra=a.extra or {}, stage=a.stage.value, hubspot_id=a.hubspot_id,
-        pushed=a.stage == Stage.PUSHED, net_new=a.net_new,
+        pushed=a.stage == Stage.PUSHED, net_new=a.net_new, pursued=a.pursued,
     )
     if a.score:
         row.fit = a.score.fit
@@ -50,6 +50,7 @@ def _account_from_row(row: AccountRow) -> Account:
         linkedin_url=row.linkedin_url, city=row.city, state=row.state,
         extra=row.extra or {}, discovered_by=row.discovered_by,
         stage=Stage(row.stage), hubspot_id=row.hubspot_id, net_new=row.net_new,
+        pursued=row.pursued,
     )
     a.signals = [
         Signal(kind=SignalKind(s.kind), source=s.source, value=s.value, detail=s.detail,
@@ -82,6 +83,14 @@ def upsert_accounts(session: Session, accounts: list[Account]) -> None:
         if existing is not None:
             new_row.pushed = existing.pushed or new_row.pushed
             new_row.hubspot_id = existing.hubspot_id or new_row.hubspot_id
+            # Preserve the pursued state + sourced contacts so a re-ingest never wipes
+            # decision-makers we already paid Apollo to find.
+            new_row.pursued = existing.pursued or new_row.pursued
+            new_row.contacts = [
+                ContactRow(name=c.name, title=c.title, email=c.email,
+                           linkedin_url=c.linkedin_url, seniority=c.seniority, source=c.source)
+                for c in existing.contacts
+            ]
             session.delete(existing)
             session.flush()
         session.add(new_row)
@@ -107,3 +116,31 @@ def mark_pushed(session: Session, domain: str, hubspot_id: str) -> None:
         row.hubspot_id = hubspot_id
         row.stage = Stage.PUSHED.value
         session.commit()
+
+
+def store_contacts(session: Session, domain: str, contacts: list[Contact]) -> int:
+    """Record sourced contacts on a pursued company (replaces any prior set, so a
+    re-pursue refreshes rather than duplicates) and flag the company pursued."""
+    row = session.get(AccountRow, domain)
+    if row is None:
+        return 0
+    row.contacts = [
+        ContactRow(name=c.name, title=c.title, email=c.email,
+                   linkedin_url=c.linkedin_url, seniority=c.seniority, source=c.source)
+        for c in contacts
+    ]
+    row.pursued = True
+    session.commit()
+    return len(contacts)
+
+
+def get_contacts(session: Session, domain: str) -> list[Contact]:
+    """The decision-makers sourced for a company (empty until it's pursued)."""
+    row = session.get(AccountRow, domain)
+    if row is None:
+        return []
+    return [
+        Contact(name=r.name, company_domain=domain, title=r.title, email=r.email,
+                linkedin_url=r.linkedin_url, seniority=r.seniority, source=r.source)
+        for r in row.contacts
+    ]

@@ -5,7 +5,7 @@
    firm, with sources), routing status, and the outreach draft.
    LIVE: reads PE.STREAM (from /api/candidates).
    ============================================================ */
-const { useState: useStateA, useMemo: useMemoA } = React;
+const { useState: useStateA, useMemo: useMemoA, useEffect: useEffectA } = React;
 const PEA = window.PE;
 const IcoA = PEA.Icons;
 const { Badge: BadgeA, Button: BtnA } = window.SixthCityMarketingDesignSystem_4d5a9e;
@@ -66,6 +66,11 @@ const AC_CSS = `
 .ac-kv__k{ color:var(--text-muted); }
 .ac-kv__v{ font-weight:700; color:var(--text-strong); }
 .ac-empty{ text-align:center; padding:50px 20px; color:var(--text-muted); }
+.ac-contact{ padding:10px 0; border-bottom:1px solid var(--border-subtle); }
+.ac-contact:last-child{ border-bottom:none; }
+.ac-contact__nm{ font-weight:700; font-size:13px; color:var(--text-strong); }
+.ac-contact__ti{ font-size:11px; color:var(--text-muted); margin-top:1px; }
+.ac-contact__c{ font-size:11px; margin-top:3px; } .ac-contact__c a{ color:var(--coral-600); text-decoration:none; }
 `;
 (function(){ if(document.getElementById("ac-css"))return; const s=document.createElement("style"); s.id="ac-css"; s.textContent=AC_CSS; document.head.appendChild(s); })();
 
@@ -88,6 +93,27 @@ function ScoreRing({ value }) {
 }
 
 function AccountDetail({ a, onBack }) {
+  const [contacts, setContacts] = useStateA([]);
+  const [pursued, setPursued] = useStateA(a.pursued);
+  const [pursuing, setPursuing] = useStateA(false);
+  const [err, setErr] = useStateA("");
+
+  useEffectA(() => {
+    if (a.pursued) PEA.fetchContacts(a.domain).then(setContacts).catch(() => {});
+  }, [a.domain]);
+
+  async function pursue() {
+    setPursuing(true); setErr("");
+    try {
+      const res = await PEA.pursueDomains([a.domain]);
+      const found = (res.pursued && res.pursued[0]) || {};
+      setContacts(found.contacts || []);
+      setPursued(true);
+      if (!res.apollo_configured) setErr("Apollo isn't configured yet (set APOLLO_API_KEY) — no contacts sourced.");
+      else if (!(found.contacts || []).length) setErr("No decision-makers found at this domain.");
+    } catch (e) { setErr(String(e.message || e)); } finally { setPursuing(false); }
+  }
+
   const dedupeBadge = a.netNew === true
     ? <BadgeA tone="green" variant="soft" dot>Net-new</BadgeA>
     : a.netNew === false ? <BadgeA tone="neutral" variant="soft">In your CRM</BadgeA>
@@ -155,6 +181,36 @@ function AccountDetail({ a, onBack }) {
               <div className="ac-kv"><span className="ac-kv__k">Confirmed</span><span className="ac-kv__v">{a.routeConfirmed ? "Yes" : "Awaiting"}</span></div>
               <div className="ac-kv"><span className="ac-kv__k">Stage</span><span className="ac-kv__v" style={{ textTransform: "capitalize" }}>{(a.stage || "—").replace(/_/g, " ")}</span></div>
               <div className="ac-kv"><span className="ac-kv__k">In-market</span><span className="ac-kv__v">{a.inMarket === "confirmed" ? ("Confirmed — " + (a.inMarketWhy || "buying signal")) : "Unknown — qualify"}</span></div>
+            </div>
+          </div>
+
+          <div className="ac-card">
+            <div className="ac-card__h"><IcoA.Sparkles size={16} style={{ color: "var(--coral-500)" }} /><h4>Contacts</h4>{pursued && <span className="pe-overline">{contacts.length} sourced</span>}</div>
+            <div className="ac-card__b">
+              {!pursued ? (
+                <React.Fragment>
+                  <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.4 }}>
+                    A company isn't actionable without a person. Commit to this opportunity to find &amp; enrich the decision-makers (Apollo).
+                  </p>
+                  <BtnA variant="primary" size="sm" icon={<IcoA.Zap size={14} />} disabled={pursuing} onClick={pursue}>
+                    {pursuing ? "Finding contacts…" : "Pursue this opportunity"}
+                  </BtnA>
+                </React.Fragment>
+              ) : contacts.length === 0 ? (
+                <p style={{ fontSize: 12, color: "var(--text-muted)" }}>Pursued — no contacts on file.</p>
+              ) : (
+                contacts.map((c, i) => (
+                  <div className="ac-contact" key={i}>
+                    <div className="ac-contact__nm">{c.name}</div>
+                    <div className="ac-contact__ti">{c.title}{c.seniority ? " · " + c.seniority : ""}</div>
+                    <div className="ac-contact__c">
+                      {c.email ? <a href={"mailto:" + c.email}>{c.email}</a> : <span style={{ color: "var(--text-subtle)" }}>email locked</span>}
+                      {c.linkedin_url && <React.Fragment> · <a href={c.linkedin_url} target="_blank" rel="noreferrer">LinkedIn</a></React.Fragment>}
+                    </div>
+                  </div>
+                ))
+              )}
+              {err && <div style={{ fontSize: 11, color: "var(--danger)", marginTop: 10 }}>{err}</div>}
             </div>
           </div>
 
