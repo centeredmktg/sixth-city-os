@@ -153,3 +153,18 @@ def test_enrich_endpoint_returns_progress(client, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     assert "enriched" in body and "remaining" in body
+
+
+def test_scoreboard_value_metrics_no_revshare(client):
+    """Scoreboard reports THEIR engine-impact value (surfaced / perfect-fit / in-CRM)
+    and a pending outcome funnel — never rev-share (that's backend-only)."""
+    client.post("/api/ingest",
+                files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
+    body = client.get("/api/scoreboard").json()
+    assert body["surfaced"] == 2
+    assert "perfect_fit" in body and "net_new" in body and "in_crm" in body
+    assert set(body["by_band"]) == {"A", "B", "C", "R"}
+    # outcome funnel present but pending (not yet wired to HubSpot activity)
+    assert body["outcomes"]["pipeline_value"] is None
+    # no rev-share / attribution language leaks into the payload
+    assert "rev" not in str(body).lower() and "owed" not in str(body).lower()

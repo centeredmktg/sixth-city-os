@@ -29,7 +29,7 @@ function Sidebar({ view, onNav, netNew }) {
     { id: "ingestion", label: "Ingestion", icon: P.Icons.Database, count: netNew },
     { id: "queue", label: "Morning Queue", icon: P.Icons.Sunrise, soon: true },
     { id: "triage", label: "Triage Board", icon: P.Icons.Route, count: netNew },
-    { id: "scoreboard", label: "Scoreboard", icon: P.Icons.Scale, soon: true },
+    { id: "scoreboard", label: "Scoreboard", icon: P.Icons.Scale },
     { id: "accounts", label: "Accounts", icon: P.Icons.Building },
   ];
   return (
@@ -136,6 +136,7 @@ function App() {
   const titles = {
     triage: ["Triage Board", "Confirm or override routing — the human-in-the-loop gate"],
     accounts: ["Accounts", "The book — every scored account + its evidence trail"],
+    scoreboard: ["Engine Impact", "What the engine is producing for your pipeline"],
     ingestion: ["Ingestion Engine", "Where every account enters the pipeline"],
   };
   const [title, sub] = importing
@@ -154,6 +155,8 @@ function App() {
               ? <P.TriageBoard onConfirmed={triageConfirmed} onError={pushError} />
             : view === "accounts"
               ? <P.AccountsScreen />
+            : view === "scoreboard"
+              ? <P.Scoreboard />
               : <P.IngestionEngine onSendToScoring={() => {}} onRunIngest={() => setMode("import")} />}
         </div>
       </div>

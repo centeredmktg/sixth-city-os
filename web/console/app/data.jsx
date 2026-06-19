@@ -167,6 +167,11 @@ async function enrichChunk(limit = 20) {
   return r.json();   // { enriched, remaining }
 }
 
+async function fetchScoreboard() {
+  const r = await fetch("/api/scoreboard");
+  return r.json();
+}
+
 /* Confirm the operator's routing call and push the selected firms into HubSpot.
    The server re-checks each domain at claim time, so only net-new ones are created. */
 async function pushDomains(domains) {
@@ -192,7 +197,7 @@ async function ingestFile(file) {
 Object.assign(window.PE, {
   Vertical, SignalKind, RUN, STAGES, STATUS, ROLE,
   ACTIVE_SOURCES, ONDECK_SOURCES, STREAM,
-  siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, pushDomains, LAST_INGEST: null,
+  siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, pushDomains, fetchScoreboard, LAST_INGEST: null,
   ops: { name: "John Sammon", title: "Owner / Sixth City" },
   danny: { name: "Danny Cox", title: "Pipeline Ops" },
 });

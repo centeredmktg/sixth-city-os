@@ -167,6 +167,36 @@ def candidates(session=Depends(db_session), limit: int = 250):
     }
 
 
+@app.get("/api/scoreboard")
+def scoreboard(session=Depends(db_session)):
+    """Engine-impact metrics for Sixth City — the VALUE the engine is creating for
+    THEIR pipeline (not rev-share; that stays backend-only). Top of funnel is real
+    from the DB now: prospects surfaced, perfect-fit found, net-new, added to CRM.
+    The outcome funnel (reached out / meetings booked / pipeline generated) lives in
+    HubSpot activity and isn't synced yet — returned as null so the UI shows it as
+    pending rather than a fake zero."""
+    rows = session.query(AccountRow).all()
+    surfaced = len(rows)
+    by_band = {b: sum(1 for r in rows if (r.band or "") == b) for b in ("A", "B", "C", "R")}
+    net_new = sum(1 for r in rows if r.net_new is True)
+    perfect_fit = sum(1 for r in rows if (r.band or "") == "A" and r.net_new is True)
+    in_crm = sum(1 for r in rows if r.pushed)
+    by_vertical = {}
+    for r in rows:
+        by_vertical[r.vertical] = by_vertical.get(r.vertical, 0) + 1
+    top_verticals = sorted(by_vertical.items(), key=lambda kv: kv[1], reverse=True)[:6]
+    return {
+        "surfaced": surfaced,
+        "perfect_fit": perfect_fit,
+        "net_new": net_new,
+        "in_crm": in_crm,
+        "by_band": by_band,
+        "top_verticals": [{"vertical": v, "count": n} for v, n in top_verticals],
+        # outcome funnel — null = "awaiting HubSpot activity sync" (not yet wired)
+        "outcomes": {"reached_out": None, "meetings": None, "pipeline_value": None},
+    }
+
+
 @app.post("/api/enrich")
 def enrich(limit: int = 20, session=Depends(db_session)):
     """Run one chunk of free enrichment (site audit + domain age + PageSpeed) over
