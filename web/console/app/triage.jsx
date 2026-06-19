@@ -12,11 +12,13 @@ const { Badge: BadgeT, Button: BtnT } = window.SixthCityMarketingDesignSystem_4d
 
 const GATE = 55;   // timing >= GATE => in-market => closer-bound (mirrors engine routing)
 
-// Toggle order is coldest -> warmest, then reject (out): Hold | Nurture | Closer | Reject.
+// Toggle order is coldest -> warmest, then reject (out): Hold | Nurture | LFG | Reject.
+// "LFG" is the display label for the `closer` route (key unchanged — routing/push logic
+// keys off 'closer' everywhere; this is purely what the operator sees).
 const ROUTES = [
   { key: "hold",    label: "Hold" },
   { key: "nurture", label: "Nurture" },
-  { key: "closer",  label: "Closer" },
+  { key: "closer",  label: "LFG" },
   { key: "reject",  label: "Reject" },
 ];
 const ROUTE_TONE = { closer: "green", nurture: "warning", hold: "neutral", reject: "danger" };
@@ -151,7 +153,7 @@ function TriageBoard({ onConfirmed, onError }) {
             <div className="tg-bar__sp" />
             <BtnT variant="primary" size="sm" icon={<IcoT.Zap size={14} />}
               disabled={busy || !obvious.length} onClick={() => confirm(obvious)}>
-              {busy ? "Confirming…" : `Bulk-confirm ${obvious.length} obvious (A → closer)`}
+              {busy ? "Confirming…" : `Bulk-confirm ${obvious.length} obvious (A → LFG)`}
             </BtnT>
           </div>
 
@@ -201,7 +203,7 @@ function TriageBoard({ onConfirmed, onError }) {
                             ))}
                           </div>
                           {r === "closer"
-                            ? <BtnT variant="primary" size="sm" icon={<IcoT.Check size={14} />} disabled={busy} onClick={() => confirm([a.domain])}>Confirm Closer</BtnT>
+                            ? <BtnT variant="primary" size="sm" icon={<IcoT.Check size={14} />} disabled={busy} onClick={() => confirm([a.domain])}>Confirm LFG</BtnT>
                             : <span style={{ fontSize: 11, color: "var(--text-subtle)" }}>{r === "reject" ? "won't be worked" : "marketing track — no push"}</span>}
                         </React.Fragment>
                       )}
