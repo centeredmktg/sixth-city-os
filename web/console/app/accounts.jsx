@@ -154,7 +154,7 @@ function AccountDetail({ a, onBack }) {
               <div className="ac-kv"><span className="ac-kv__k">Recommended</span><span className="ac-kv__v" style={{ textTransform: "capitalize" }}>{a.route || "—"}</span></div>
               <div className="ac-kv"><span className="ac-kv__k">Confirmed</span><span className="ac-kv__v">{a.routeConfirmed ? "Yes" : "Awaiting"}</span></div>
               <div className="ac-kv"><span className="ac-kv__k">Stage</span><span className="ac-kv__v" style={{ textTransform: "capitalize" }}>{(a.stage || "—").replace(/_/g, " ")}</span></div>
-              <div className="ac-kv"><span className="ac-kv__k">In market?</span><span className="ac-kv__v">{(a.timing || 0) >= 55 ? "Yes (timing ≥ 55)" : "Not yet"}</span></div>
+              <div className="ac-kv"><span className="ac-kv__k">In-market</span><span className="ac-kv__v">{a.inMarket === "confirmed" ? ("Confirmed — " + (a.inMarketWhy || "buying signal")) : "Unknown — qualify"}</span></div>
             </div>
           </div>
 

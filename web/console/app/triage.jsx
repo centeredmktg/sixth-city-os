@@ -87,7 +87,7 @@ function FitTimingScatter({ rows, routeOf }) {
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" height="100%" preserveAspectRatio="none">
       <rect x="0" y="0" width={W} height={gateY} fill="rgba(237,106,60,.06)" />
       <line x1="0" y1={gateY} x2={W} y2={gateY} stroke="var(--coral-400)" strokeWidth="1" strokeDasharray="4 3" />
-      <text x={W - 6} y={gateY - 5} textAnchor="end" fontSize="9" fill="var(--coral-600)" fontFamily="var(--font-mono)">in-market gate · {GATE}</text>
+      <text x={W - 6} y={gateY - 5} textAnchor="end" fontSize="9" fill="var(--coral-600)" fontFamily="var(--font-mono)">timing {GATE}</text>
       {rows.map((a, i) => (
         <circle key={a.domain || i} cx={px(a.fit || 0)} cy={py(a.timing || 0)} r="4.5"
           fill={ROUTE_DOT[routeOf(a)] || "var(--stone-400)"} fillOpacity="0.85" />
@@ -166,8 +166,14 @@ function TriageBoard({ onConfirmed, onError }) {
                       <div className="tg-card__nm">{a.name}</div>
                       <div className="tg-card__meta">{a.domain} · {PET.Vertical[a.vertical] || a.vertical}{a.city ? " · " + a.city : ""}</div>
                       <div className="tg-card__why">
-                        <BadgeT tone={ROUTE_TONE[r]} variant="soft" size="sm">{ROUTES.find((x) => x.key === r).label}</BadgeT>
-                        <span style={{ color: "var(--text-muted)" }}>{ROUTE_BLURB[r]} (timing {Math.round(a.timing || 0)} {(a.timing || 0) >= GATE ? "≥" : "<"} {GATE})</span>
+                        {a.inMarket === "confirmed"
+                          ? <BadgeT tone="green" variant="soft" size="sm" dot>In-market</BadgeT>
+                          : <BadgeT tone="neutral" variant="soft" size="sm">In-market: unknown</BadgeT>}
+                        <span style={{ color: "var(--text-muted)" }}>
+                          {a.inMarket === "confirmed"
+                            ? (a.inMarketWhy || "active buying signal")
+                            : "no buying signal yet — qualify (a human sets “not now”)"}
+                        </span>
                       </div>
                     </div>
 
@@ -207,7 +213,7 @@ function TriageBoard({ onConfirmed, onError }) {
 
             <div className="tg-side">
               <h4>Fit × Timing</h4>
-              <div className="tg-side__sub">Timing trumps fit. Above the gate → closer; good-fit but cold → nurture.</div>
+              <div className="tg-side__sub">Fit × timing scores for ranking. In-market is confirmed by a real buying signal — not a timing cutoff.</div>
               <div className="tg-plot"><FitTimingScatter rows={all} routeOf={routeOf} /></div>
               <div className="tg-legend">
                 {ROUTES.map((x) => (

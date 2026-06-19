@@ -57,9 +57,11 @@ function MorningQueue({ onConfirmed, onError }) {
   const [done, setDone] = useStateQ({});
   const [busy, setBusy] = useStateQ(false);
 
-  // Today's worklist: net-new, routed to closer, in-market NOW — best-first.
+  // Today's worklist: net-new with a CONFIRMED in-market signal (actively running
+  // ads / hiring / just launched) — the firms a real buying signal says to work NOW.
+  // Best-first. Unknown-timing firms aren't buried here; they're for qualification.
   const queue = (PEQ.STREAM || [])
-    .filter((a) => a.netNew === true && a.route === "closer" && (a.timing || 0) >= GATE_Q)
+    .filter((a) => a.netNew === true && a.inMarket === "confirmed")
     .sort((x, y) => (y.total || 0) - (x.total || 0))
     .slice(0, TOP_N);
   const left = queue.filter((a) => !done[a.domain]);
@@ -97,7 +99,7 @@ function MorningQueue({ onConfirmed, onError }) {
         <React.Fragment>
           <div className="mq-bar">
             <IcoQ.Sunrise size={18} style={{ color: "var(--coral-500)" }} />
-            <div className="mq-bar__t"><b>{left.length}</b> to work{Object.keys(done).length ? ` · ${Object.keys(done).length} done` : ""} · in-market now (timing ≥ {GATE_Q})</div>
+            <div className="mq-bar__t"><b>{left.length}</b> to work{Object.keys(done).length ? ` · ${Object.keys(done).length} done` : ""} · confirmed in-market (active buying signal)</div>
           </div>
 
           {queue.map((a, i) => {

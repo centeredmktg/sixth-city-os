@@ -107,6 +107,7 @@ function mapCandidate(c) {
     signals: c.signals || [],   // full {kind, detail, source, value} for the account detail
     route: c.route, band: c.band, total: c.total, fit: c.fit, timing: c.timing,
     netNew: c.net_new, stage: c.stage, scoreRationale: c.score_rationale, routeConfirmed: c.route_confirmed,
+    inMarket: c.in_market || "unknown", inMarketWhy: c.in_market_reason || "",
     outreach: c.outreach || null,
   };
 }
