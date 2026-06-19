@@ -151,7 +151,11 @@ def candidates(session=Depends(db_session), limit: int = 250):
             "total": a.score.total if a.score else 0.0,
             "band": a.score.band if a.score else "R",
             "net_new": a.net_new,
-            "signals": [{"kind": s.kind.value, "detail": s.detail} for s in a.signals],
+            "stage": a.stage.value if a.stage else None,
+            "score_rationale": a.score.rationale if a.score else "",
+            "route_confirmed": bool(a.route and a.route.confirmed),
+            "signals": [{"kind": s.kind.value, "detail": s.detail, "source": s.source,
+                         "value": s.value} for s in a.signals],
             "outreach": {"subject": outreach.subject, "body": outreach.body},
         })
     return {

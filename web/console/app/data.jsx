@@ -104,7 +104,10 @@ function mapCandidate(c) {
     src: siteSig && siteSig.source === "pagespeed" ? "pagespeed" : "clay",
     site: siteSig && Number.isFinite(siteSig.value) ? Math.round(siteSig.value) : null,
     dedupe: c.net_new === true ? "net_new" : (c.net_new === false ? "merged" : "pending"), signalKinds: kinds,
+    signals: c.signals || [],   // full {kind, detail, source, value} for the account detail
     route: c.route, band: c.band, total: c.total, fit: c.fit, timing: c.timing,
+    netNew: c.net_new, stage: c.stage, scoreRationale: c.score_rationale, routeConfirmed: c.route_confirmed,
+    outreach: c.outreach || null,
   };
 }
 
