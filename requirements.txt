@@ -5,3 +5,6 @@ uvicorn[standard]
 python-multipart
 sqlalchemy
 psycopg[binary]
+authlib
+httpx
+itsdangerous
