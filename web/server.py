@@ -25,6 +25,7 @@ from engine.jobs import enrich as enrich_job
 from engine.jobs import push_to_hubspot
 from engine.modules import draft_cold_email
 from engine.models import Route, Stage
+from engine import routing
 from engine.sources.clay_payload import ClayPayloadSource, has_domain_column
 
 from web import auth
@@ -146,11 +147,14 @@ def candidates(session=Depends(db_session), limit: int = 250):
     out = []
     for a in ranked[:limit]:
         outreach = draft_cold_email.draft(a)
+        in_market, in_market_reason = routing.in_market_status(a)
         out.append({
             "domain": a.domain,
             "name": a.name,
             "city": a.city,
             "vertical": a.vertical.value,
+            "in_market": in_market,                 # "confirmed" | "unknown" (never "no")
+            "in_market_reason": in_market_reason,
             "route": a.route.effective.value if a.route else None,
             "fit": a.score.fit if a.score else 0.0,
             "timing": a.score.timing if a.score else 0.0,

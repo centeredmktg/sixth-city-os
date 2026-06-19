@@ -18,12 +18,34 @@ confirms or reroutes — that's a Claude Design surface.
 
 from __future__ import annotations
 
-from engine.models import Account, Route, RouteDecision
+from engine.models import Account, Route, RouteDecision, SignalKind
 
 # Timing is the gate. Tune against real close data.
 IN_MARKET_TIMING = 55.0     # at/above this, they're worth the closer's day NOW
 VIABLE_FIT = 60.0           # good-enough fit to bother nurturing for later
 MIN_AGREEING_SIGNALS = 2    # Blueprint PQS rule: a pain qualifies only when ≥2 sources agree
+
+# "In-market" is a POSITIVE confirmation, never an inference from a low score. Only a
+# real buying-intent event proves a firm is in-market NOW; the absence of one means
+# UNKNOWN, not "not in-market." (A negative — "not right now" — is a human call: the
+# closer/BDR sets it after contact. The engine must never assert it.) Gap/fit signals
+# like site-quality or SEO gaps say they NEED help, not that they're shopping today —
+# they don't count here.
+INTENT_SIGNALS = {SignalKind.ADS_ACTIVE, SignalKind.HIRING_MARKETING, SignalKind.NEW_LOCATION}
+_INTENT_REASON = {
+    SignalKind.ADS_ACTIVE: "actively running ads",
+    SignalKind.HIRING_MARKETING: "hiring for marketing",
+    SignalKind.NEW_LOCATION: "new location / recently launched",
+}
+
+
+def in_market_status(account: Account) -> tuple[str, str]:
+    """Positive-confirmation in-market check. Returns ("confirmed", reason) when a
+    real intent signal is present, else ("unknown", "") — NEVER "not in-market"."""
+    for s in account.signals:
+        if s.kind in INTENT_SIGNALS:
+            return "confirmed", _INTENT_REASON.get(s.kind, "active buying signal")
+    return "unknown", ""
 
 
 def pain_qualified(account: Account) -> bool:
