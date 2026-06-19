@@ -27,7 +27,7 @@ const APP_CSS = `
 function Sidebar({ view, onNav, netNew }) {
   const NAV = [
     { id: "ingestion", label: "Ingestion", icon: P.Icons.Database, count: netNew },
-    { id: "queue", label: "Morning Queue", icon: P.Icons.Sunrise, soon: true },
+    { id: "queue", label: "Morning Queue", icon: P.Icons.Sunrise },
     { id: "triage", label: "Triage Board", icon: P.Icons.Route, count: netNew },
     { id: "scoreboard", label: "Scoreboard", icon: P.Icons.Scale },
     { id: "accounts", label: "Accounts", icon: P.Icons.Building },
@@ -134,6 +134,7 @@ function App() {
   const nav = (v) => { setView(v); setMode("run"); };
   const importing = mode === "import";
   const titles = {
+    queue: ["Morning Queue", "Start here — today's highest-priority net-new to work"],
     triage: ["Triage Board", "Confirm or override routing — the human-in-the-loop gate"],
     accounts: ["Accounts", "The book — every scored account + its evidence trail"],
     scoreboard: ["Engine Impact", "What the engine is producing for your pipeline"],
@@ -151,6 +152,8 @@ function App() {
         <div className="pe-scroll">
           {importing
             ? <P.FileImporter onCancel={() => setMode("run")} onComplete={finishImport} onError={importError} />
+            : view === "queue"
+              ? <P.MorningQueue onConfirmed={triageConfirmed} onError={pushError} />
             : view === "triage"
               ? <P.TriageBoard onConfirmed={triageConfirmed} onError={pushError} />
             : view === "accounts"
