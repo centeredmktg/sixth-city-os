@@ -185,6 +185,12 @@ def scoreboard(session=Depends(db_session)):
     for r in rows:
         by_vertical[r.vertical] = by_vertical.get(r.vertical, 0) + 1
     top_verticals = sorted(by_vertical.items(), key=lambda kv: kv[1], reverse=True)[:6]
+    # Outcome funnel from live HubSpot activity (reached out / meetings / pipeline $).
+    # Defensive: never let a HubSpot hiccup 500 the scoreboard — degrade to pending.
+    try:
+        outcomes = HubSpotClient().outcomes()
+    except Exception:
+        outcomes = {"reached_out": None, "meetings": None, "pipeline_value": None}
     return {
         "surfaced": surfaced,
         "perfect_fit": perfect_fit,
@@ -192,8 +198,7 @@ def scoreboard(session=Depends(db_session)):
         "in_crm": in_crm,
         "by_band": by_band,
         "top_verticals": [{"vertical": v, "count": n} for v, n in top_verticals],
-        # outcome funnel — null = "awaiting HubSpot activity sync" (not yet wired)
-        "outcomes": {"reached_out": None, "meetings": None, "pipeline_value": None},
+        "outcomes": outcomes,
     }
 
 
