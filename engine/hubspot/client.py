@@ -182,3 +182,90 @@ class HubSpotClient:
             if not after:
                 break
         return rows
+
+    # --- engine-impact OUTCOMES (Sixth City's value signal, NOT rev-share) --------
+    def _machine_sourced_company_ids(self) -> list[str]:
+        """Every company the engine has claimed (machine_sourced=true), paginated."""
+        body: dict = {
+            "filterGroups": [{"filters": [
+                {"propertyName": MACHINE_SOURCED_PROPERTY, "operator": "EQ", "value": "true"},
+            ]}],
+            "properties": ["domain"], "limit": 100,
+        }
+        ids: list[str] = []
+        after: str | None = None
+        while True:
+            if after:
+                body["after"] = after
+            data = self._post("/crm/v3/objects/companies/search", body)
+            ids += [r["id"] for r in data.get("results", [])]
+            after = data.get("paging", {}).get("next", {}).get("after")
+            if not after:
+                break
+        return ids
+
+    def _assoc(self, to_obj: str, company_ids: list[str]) -> dict[str, list[str]]:
+        """company id -> [associated `to_obj` ids], batched 100/call (v4 associations).
+        Accepts 200 and 207 (multi-status: some companies simply have no links)."""
+        out: dict[str, list[str]] = {}
+        for i in range(0, len(company_ids), 100):
+            chunk = company_ids[i:i + 100]
+            data = self._post(f"/crm/v4/associations/companies/{to_obj}/batch/read",
+                              {"inputs": [{"id": str(c)} for c in chunk]})
+            for r in data.get("results", []):
+                frm = str(r.get("from", {}).get("id"))
+                out[frm] = [str(t.get("toObjectId")) for t in r.get("to", [])]
+            time.sleep(_SEARCH_PACE_SEC)
+        return out
+
+    def _open_pipeline_value(self, company_ids: list[str]) -> float:
+        """Sum `amount` of OPEN deals (exclude closed-won and closed-lost) associated
+        with the given companies. Batched deal reads."""
+        assoc = self._assoc("deals", company_ids)
+        deal_ids = list({d for links in assoc.values() for d in links})
+        total = 0.0
+        for i in range(0, len(deal_ids), 100):
+            chunk = deal_ids[i:i + 100]
+            data = self._post("/crm/v3/objects/deals/batch/read", {
+                "inputs": [{"id": d} for d in chunk],
+                "properties": ["amount", "hs_is_closed_won", "dealstage"],
+            })
+            for r in data.get("results", []):
+                p = r.get("properties", {})
+                if p.get("hs_is_closed_won") == "true":
+                    continue
+                if "lost" in (p.get("dealstage") or "").lower():
+                    continue
+                try:
+                    total += float(p.get("amount") or 0)
+                except (TypeError, ValueError):
+                    pass
+        return round(total, 2)
+
+    def outcomes(self) -> dict:
+        """Engine-impact OUTCOMES for machine-sourced companies — Sixth City's value
+        signal (never rev-share): how many we've reached out to (≥1 email or call),
+        meetings booked, and open pipeline $ generated. Live from HubSpot, batched.
+        Dry mode OR any failure -> None values (UI shows 'syncing'); real numbers
+        (including 0) when the portal is reachable."""
+        pending = {"reached_out": None, "meetings": None, "pipeline_value": None}
+        if self._dry:
+            return pending
+        try:
+            ids = self._machine_sourced_company_ids()
+            if not ids:
+                return {"reached_out": 0, "meetings": 0, "pipeline_value": 0.0}
+            contacted = set()
+            for kind in ("emails", "calls"):
+                for cid, links in self._assoc(kind, ids).items():
+                    if links:
+                        contacted.add(cid)
+            meetings = sum(len(v) for v in self._assoc("meetings", ids).values())
+            return {
+                "reached_out": len(contacted),
+                "meetings": meetings,
+                "pipeline_value": self._open_pipeline_value(ids),
+            }
+        except Exception as e:  # never break the scoreboard on a HubSpot hiccup
+            print(f"  [outcomes] degraded ({type(e).__name__}: {e})")
+            return pending

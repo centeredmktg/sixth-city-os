@@ -1,3 +1,10 @@
+import os
+
+# Hermetic tests: force dry mode so nothing ever touches the live HubSpot portal,
+# even though config loads .env (which carries a real token in dev). Individual
+# tests that exercise dry_run logic override this via monkeypatch.
+os.environ["DRY_RUN"] = "1"
+
 import pytest
 
 from engine.db.base import make_engine, create_all, make_session_factory
