@@ -241,6 +241,15 @@ def push(req: PushRequest, session=Depends(db_session)):
     return {"pushed": results, "count": len(results), "scoreboard": dashboard.build()}
 
 
+# SPA deep-link routes: each nav item has a real URL (bookmarkable, refresh-safe,
+# back/forward works). The console is a client-routed single page, so a hard hit on
+# any of these must serve index.html and let the app render the right view from the
+# path. Registered BEFORE the "/" StaticFiles mount so they win over its catch-all.
+_CONSOLE_INDEX = os.path.join(WEB_DIR, "console", "index.html")
+for _spa_path in ("/ingestion", "/queue", "/triage", "/scoreboard", "/accounts"):
+    app.add_api_route(_spa_path, lambda: FileResponse(_CONSOLE_INDEX),
+                      methods=["GET"], include_in_schema=False)
+
 # Earlier vanilla design prototype, kept under /design.
 app.mount("/design", StaticFiles(directory=os.path.join(WEB_DIR, "design"), html=True),
           name="design")

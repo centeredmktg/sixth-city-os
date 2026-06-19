@@ -98,8 +98,13 @@ function Topbar({ title, sub }) {
   );
 }
 
+// Deep-linkable routes — each nav view has a persistent URL (bookmark/refresh/back work).
+const VIEW_PATH = { ingestion: "/", queue: "/queue", triage: "/triage", scoreboard: "/scoreboard", accounts: "/accounts" };
+const PATH_VIEW = { "/": "ingestion", "/ingestion": "ingestion", "/queue": "queue", "/triage": "triage", "/scoreboard": "scoreboard", "/accounts": "accounts" };
+const viewFromPath = () => PATH_VIEW[window.location.pathname] || "ingestion";
+
 function App() {
-  const [view, setView] = useStateApp("ingestion");
+  const [view, setView] = useStateApp(viewFromPath());   // initial view from the URL
   const [mode, setMode] = useStateApp("run");   // run | import
   const [toast, setToast] = useStateApp(null);
   const [tick, setTick] = useStateApp(0);        // bump to re-render after a live refresh
@@ -113,7 +118,14 @@ function App() {
     return () => clearTimeout(t);
   }, [toast]);
 
-  useEffectApp(() => { document.querySelector(".pe-scroll")?.scrollTo(0, 0); }, [mode]);
+  useEffectApp(() => { document.querySelector(".pe-scroll")?.scrollTo(0, 0); }, [mode, view]);
+
+  // Back/forward + direct-URL: keep the view in sync with the address bar.
+  useEffectApp(() => {
+    const onPop = () => setView(viewFromPath());
+    window.addEventListener("popstate", onPop);
+    return () => window.removeEventListener("popstate", onPop);
+  }, []);
 
   const finishImport = async (result) => {
     await P.refresh();
@@ -131,7 +143,11 @@ function App() {
   };
   const pushError = (err) => setToast({ err: true, msg: <span>Push failed — {String(err.message || err)}</span> });
 
-  const nav = (v) => { setView(v); setMode("run"); };
+  const nav = (v) => {
+    setView(v); setMode("run");
+    const path = VIEW_PATH[v] || "/";
+    if (window.location.pathname !== path) window.history.pushState(null, "", path);
+  };
   const importing = mode === "import";
   const titles = {
     queue: ["Morning Queue", "Start here — today's highest-priority net-new to work"],
