@@ -167,6 +167,7 @@ class Account:
     stage: Stage = Stage.DISCOVERED
     hubspot_id: Optional[str] = None
     net_new: Optional[bool] = None
+    pursued: bool = False       # operator committed -> contacts sourced
     discovered_by: str = ""     # source registry name — provenance for attribution
 
 
@@ -193,6 +194,20 @@ class Offer:
     subject: str
     body: str
     cta: str                    # the one-word reply ask, e.g. 'reply "send it"'
+
+
+@dataclass
+class Contact:
+    """A decision-maker at a pursued company — found + enriched (Apollo) only AFTER
+    the operator commits to the opportunity. A company alone isn't actionable; this is
+    the person you actually reach. Email may be blank until unlocked (costs a credit)."""
+    name: str
+    company_domain: str
+    title: str = ""
+    email: str = ""
+    linkedin_url: str = ""
+    seniority: str = ""
+    source: str = "apollo"
 
 
 @dataclass

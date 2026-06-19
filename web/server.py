@@ -164,6 +164,7 @@ def candidates(session=Depends(db_session), limit: int = 250):
             "stage": a.stage.value if a.stage else None,
             "score_rationale": a.score.rationale if a.score else "",
             "route_confirmed": bool(a.route and a.route.confirmed),
+            "pursued": a.pursued,
             "signals": [{"kind": s.kind.value, "detail": s.detail, "source": s.source,
                          "value": s.value} for s in a.signals],
             "outreach": {"subject": outreach.subject, "body": outreach.body},
@@ -239,6 +240,34 @@ def push(req: PushRequest, session=Depends(db_session)):
         results.append({"domain": a.domain, "hubspot_id": a.hubspot_id})
 
     return {"pushed": results, "count": len(results), "scoreboard": dashboard.build()}
+
+
+def _contact_dict(c) -> dict:
+    return {"name": c.name, "title": c.title, "email": c.email,
+            "linkedin_url": c.linkedin_url, "seniority": c.seniority}
+
+
+@app.post("/api/pursue")
+def pursue(req: PushRequest, session=Depends(db_session)):
+    """Operator commits to opportunities -> find & enrich the decision-makers (Apollo)
+    for each company, store them, flag it pursued. Dry mode (no APOLLO_API_KEY) returns
+    0 contacts. Credits are spent here, on the shortlist — never the haystack."""
+    from engine.apollo.client import ApolloClient
+    apollo = ApolloClient()
+    out = []
+    for domain in req.domains:
+        contacts = apollo.find_contacts(domain, limit=5)
+        n = repo.store_contacts(session, domain, contacts)
+        out.append({"domain": domain, "contacts_found": n,
+                    "contacts": [_contact_dict(c) for c in contacts]})
+    return {"pursued": out, "apollo_configured": not apollo.dry}
+
+
+@app.get("/api/contacts")
+def contacts(domain: str, session=Depends(db_session)):
+    """The decision-makers sourced for a pursued company (empty until pursued)."""
+    return {"domain": domain,
+            "contacts": [_contact_dict(c) for c in repo.get_contacts(session, domain)]}
 
 
 # SPA deep-link routes: each nav item has a real URL (bookmarkable, refresh-safe,
