@@ -27,6 +27,8 @@ from engine.modules import draft_cold_email
 from engine.models import Route, Stage
 from engine.sources.clay_payload import ClayPayloadSource, has_domain_column
 
+from web import auth
+
 
 class PushRequest(BaseModel):
     domains: list[str]
@@ -49,6 +51,10 @@ class RevalidateStaticFiles(StaticFiles):
 
 
 app = FastAPI(title="Sixth City Pipeline Engine")
+
+# Google-OAuth gate — guards the console + every /api/* route. No-op (open) until the
+# Google creds are configured in prod, so local dev/tests are unaffected.
+auth.setup_auth(app)
 
 # One engine/session-factory per process, built at import from DATABASE_URL.
 _engine = make_engine()
