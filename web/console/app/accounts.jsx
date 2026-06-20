@@ -187,6 +187,17 @@ function AccountDetail({ a, onBack }) {
           <div className="ac-card">
             <div className="ac-card__h"><IcoA.Sparkles size={16} style={{ color: "var(--coral-500)" }} /><h4>Contacts</h4>{pursued && <span className="pe-overline">{contacts.length} sourced</span>}</div>
             <div className="ac-card__b">
+              {((a.siteEmails || []).length > 0 || (a.sitePhones || []).length > 0) && (
+                <div style={{ marginBottom: 14, paddingBottom: 12, borderBottom: "1px solid var(--border-subtle)" }}>
+                  <div style={{ fontFamily: "var(--font-mono)", fontSize: 10, textTransform: "uppercase", letterSpacing: ".08em", color: "var(--text-subtle)", marginBottom: 6 }}>General contact · on their site (small teams read these)</div>
+                  {(a.siteEmails || []).map((e, i) => (
+                    <div className="ac-contact__c" key={"e" + i}><a href={"mailto:" + e}>{e}</a></div>
+                  ))}
+                  {(a.sitePhones || []).map((p, i) => (
+                    <div className="ac-contact__c" key={"p" + i}><a href={"tel:" + p.replace(/[^0-9+]/g, "")}>{p}</a></div>
+                  ))}
+                </div>
+              )}
               {!pursued ? (
                 <React.Fragment>
                   <p style={{ fontSize: 12, color: "var(--text-muted)", margin: "0 0 12px", lineHeight: 1.4 }}>
