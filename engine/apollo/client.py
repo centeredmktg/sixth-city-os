@@ -41,30 +41,42 @@ class ApolloClient:
     def dry(self) -> bool:
         return self._dry
 
+    def _headers(self) -> dict:
+        return {"X-Api-Key": self._key, "Content-Type": "application/json",
+                "Cache-Control": "no-cache"}
+
     def find_contacts(self, domain: str, limit: int = 5, titles: list[str] | None = None,
                       reveal_emails: bool = True) -> list[Contact]:
-        """People-search at `domain` for decision-maker titles. Returns up to `limit`
-        Contacts. Dry mode (no key) -> []. reveal_emails asks Apollo to unlock work
-        emails (consumes credits); set False to save credits and enrich later."""
+        """Two-step (Apollo's model, validated live):
+          1. mixed_people/api_search -> decision-makers at `domain` (obfuscated: title +
+             id, name/email/LinkedIn hidden).
+          2. people/match by id (+reveal) -> unlock the real name/email/LinkedIn — this
+             is the credit-consuming step, so it runs ONLY for the top `limit` (the
+             shortlist of a pursued company). reveal_emails=False skips it (search-only).
+        Dry mode (no key) -> []."""
         if self._dry or not domain:
             return []
-        body = {
-            "q_organization_domains_list": [domain.strip().lower()],
-            "person_titles": titles or DEFAULT_TITLES,
-            "page": 1,
-            "per_page": max(1, min(limit, 25)),
-        }
-        if reveal_emails:
-            body["reveal_personal_emails"] = True
-        r = requests.post(
-            f"{APOLLO_API}/mixed_people/search",
-            headers={"X-Api-Key": self._key, "Content-Type": "application/json",
-                     "Cache-Control": "no-cache"},
-            json=body, timeout=30,
+        s = requests.post(
+            f"{APOLLO_API}/mixed_people/api_search",
+            headers=self._headers(),
+            json={"q_organization_domains_list": [domain.strip().lower()],
+                  "person_titles": titles or DEFAULT_TITLES,
+                  "page": 1, "per_page": max(1, min(limit, 25))},
+            timeout=30,
         )
-        r.raise_for_status()
-        people = r.json().get("people", []) or r.json().get("contacts", [])
-        return [self._parse(p, domain) for p in people[:limit]]
+        s.raise_for_status()
+        people = s.json().get("people", []) or s.json().get("contacts", [])
+        out: list[Contact] = []
+        for p in people[:limit]:
+            pid = p.get("id")
+            if reveal_emails and pid:
+                m = requests.post(f"{APOLLO_API}/people/match", headers=self._headers(),
+                                  json={"id": pid, "reveal_personal_emails": True}, timeout=30)
+                if m.status_code == 200:
+                    out.append(self._parse(m.json().get("person") or {}, domain))
+                    continue
+            out.append(self._parse(p, domain))   # fall back to the (obfuscated) search row
+        return out
 
     @staticmethod
     def _parse(p: dict, domain: str) -> Contact:

@@ -35,7 +35,6 @@ class Config:
     google_places_key: str = os.getenv("GOOGLE_PLACES_KEY", "")
     pagespeed_key: str = os.getenv("PAGESPEED_KEY", "")
     builtwith_key: str = os.getenv("BUILTWITH_KEY", "")
-    apollo_key: str = os.getenv("APOLLO_KEY", "")
 
     # Targeting defaults (Sixth City = NE Ohio; widen, don't narrow — CLAUDE.md)
     target_states: tuple[str, ...] = ("OH",)
