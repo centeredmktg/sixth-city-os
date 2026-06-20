@@ -130,6 +130,55 @@ def parse(html: str, headers: dict, url: str) -> list[Signal]:
     return sigs
 
 
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_TEL_RE = re.compile(r"tel:([+0-9().\s\-]{7,})")
+_PHONE_RE = re.compile(r"(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}")
+
+
+def _norm_phone(s: str) -> str:
+    """US 10-digit -> '(216) 555-1234'; anything else -> '' (drops junk matches)."""
+    digits = re.sub(r"\D", "", s or "")
+    if len(digits) == 11 and digits[0] == "1":
+        digits = digits[1:]
+    if len(digits) != 10:
+        return ""
+    return f"({digits[:3]}) {digits[3:6]}-{digits[6:]}"
+
+
+def extract_phones(html: str) -> list[str]:
+    """PURE: the company's general contact number(s) from the homepage — `tel:` links
+    (unambiguous) first, then inline phone-like strings. Normalized + deduped + capped.
+    For SMB/local the main line is often the best contact you'll get up front."""
+    if not html:
+        return []
+    out, seen = [], set()
+    for raw in _TEL_RE.findall(html) + _PHONE_RE.findall(html):
+        n = _norm_phone(raw)
+        if n and n not in seen:
+            seen.add(n)
+            out.append(n)
+    return out[:5]
+
+
+def extract_emails(html: str, domain: str) -> list[str]:
+    """PURE: pull emails AT the company's own domain out of the homepage HTML (covers
+    both `mailto:` links and inline text — the regex matches the address in either).
+    Domain-matched so we never harvest some third party's address; deduped, capped.
+    Free first layer of the email waterfall — strongest exactly where Apollo is weak
+    (small/local sites that list info@/name@ right in the footer or contact page)."""
+    if not html or not domain:
+        return []
+    d = domain.strip().lower()
+    d = d[4:] if d.startswith("www.") else d
+    found = set()
+    for m in _EMAIL_RE.findall(html):
+        e = m.strip().lower().rstrip(".")
+        host = e.split("@", 1)[1]
+        if host == d or host.endswith("." + d):
+            found.add(e)
+    return sorted(found)[:10]
+
+
 class SiteAuditSource(DataSource):
     name = "site_audit"
     provides_accounts = False
@@ -144,4 +193,10 @@ class SiteAuditSource(DataSource):
         except Exception as e:
             print(f"  [site_audit] skip {account.domain}: {type(e).__name__}")
             return []
+        emails = extract_emails(html, account.domain)
+        phones = extract_phones(html)
+        if emails or phones:
+            account.extra = {**(account.extra or {}),
+                             **({"site_emails": emails} if emails else {}),
+                             **({"site_phones": phones} if phones else {})}
         return parse(html, headers, account.domain)

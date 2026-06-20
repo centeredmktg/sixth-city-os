@@ -87,6 +87,7 @@ def run(session: Session, limit: int = 20, workers: int = 5, sources=None,
         acct.score = abcr.score(acct)
         row.fit, row.timing, row.total = acct.score.fit, acct.score.timing, acct.score.total
         row.band, row.score_rationale = acct.score.band, acct.score.rationale
+        row.extra = acct.extra or {}   # persist site-scraped emails (site_audit set them)
         row.enriched = True
 
     session.commit()

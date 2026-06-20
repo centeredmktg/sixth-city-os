@@ -109,6 +109,7 @@ function mapCandidate(c) {
     netNew: c.net_new, stage: c.stage, scoreRationale: c.score_rationale, routeConfirmed: c.route_confirmed,
     inMarket: c.in_market || "unknown", inMarketWhy: c.in_market_reason || "",
     pursued: c.pursued || false,
+    siteEmails: c.site_emails || [], sitePhones: c.site_phones || [],
     outreach: c.outreach || null,
   };
 }

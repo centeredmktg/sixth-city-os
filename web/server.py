@@ -165,6 +165,8 @@ def candidates(session=Depends(db_session), limit: int = 250):
             "score_rationale": a.score.rationale if a.score else "",
             "route_confirmed": bool(a.route and a.route.confirmed),
             "pursued": a.pursued,
+            "site_emails": (a.extra or {}).get("site_emails", []),
+            "site_phones": (a.extra or {}).get("site_phones", []),
             "signals": [{"kind": s.kind.value, "detail": s.detail, "source": s.source,
                          "value": s.value} for s in a.signals],
             "outreach": {"subject": outreach.subject, "body": outreach.body},
