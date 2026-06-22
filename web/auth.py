@@ -24,6 +24,8 @@ Redeploy and the gate is live.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 
 from fastapi import FastAPI, Request
@@ -36,6 +38,16 @@ GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 SESSION_SECRET = os.getenv("SESSION_SECRET", "")
 
 AUTH_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and SESSION_SECRET)
+
+# Direct-path admin backfill — a username/password login for when no Google account
+# exists yet. Reachable only by navigating straight to /auth/admin (NOT linked from the
+# Google sign-in page). Active only when both vars are set; bypasses the email allowlist.
+# Store the SHA-256 hex of the password, never the password itself.
+#   ADMIN_PASSWORD_HASH = python3 -c "import hashlib;print(hashlib.sha256(b'YOURPW').hexdigest())"
+# REMOVE these vars once you have a Sixth City Google account — it's a temporary bootstrap.
+ADMIN_USER = os.getenv("ADMIN_USER", "")
+ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH", "").strip().lower()
+ADMIN_ENABLED = bool(ADMIN_USER and ADMIN_PASSWORD_HASH)
 
 _DOMAINS = {d.strip().lower() for d in
             os.getenv("ALLOWED_EMAIL_DOMAINS", "sixthcitymarketing.com").split(",") if d.strip()}
@@ -59,6 +71,34 @@ _DENIED_HTML = """<!doctype html><html><head><meta charset=utf-8><title>Access d
 .s{{color:#B0A597;font-size:13px;margin-top:8px}}a{{color:#ED6A3C}}</style></head>
 <body><div><div style="font-weight:800;font-size:20px">Access denied</div>
 <div class=s>{email} isn't on the approved list for this workspace.<br><a href="/auth/logout">Try a different account</a></div></div></body></html>"""
+
+
+def _admin_html(error: str = "") -> str:
+    err = (f'<div style="color:#ED6A3C;font-size:13px;margin-bottom:14px">{error}</div>'
+           if error else "")
+    return f"""<!doctype html><html><head><meta charset=utf-8>
+<title>Pipeline Engine — Admin sign in</title><meta name=viewport content="width=device-width,initial-scale=1">
+<style>body{{margin:0;height:100vh;display:grid;place-items:center;background:#24272D;
+font-family:system-ui,sans-serif;color:#F4EEE7}}.c{{text-align:center;width:280px}}
+.t{{font-weight:800;font-size:22px;margin-bottom:6px}}.s{{color:#B0A597;font-size:13px;margin-bottom:24px}}
+input{{display:block;width:100%;box-sizing:border-box;margin-bottom:12px;padding:11px 12px;border-radius:8px;
+border:1px solid #4a4d54;background:#1c1f24;color:#F4EEE7;font-size:14px}}
+button{{width:100%;background:#ED6A3C;color:#fff;border:0;font-weight:700;padding:12px;border-radius:8px;font-size:15px;cursor:pointer}}
+</style></head><body><div class=c><div class=t>Sixth City · Admin</div>
+<div class=s>Direct admin sign-in (bootstrap)</div>{err}
+<form method=post action="/auth/admin" autocomplete=off>
+<input name=username placeholder=Username autofocus>
+<input name=password type=password placeholder=Password>
+<button type=submit>Sign in</button></form></div></body></html>"""
+
+
+def admin_credentials_ok(user: str, password: str) -> bool:
+    """Constant-time check of admin username + password against the configured hash."""
+    if not ADMIN_ENABLED:
+        return False
+    pw_hash = hashlib.sha256((password or "").encode()).hexdigest()
+    return (hmac.compare_digest((user or "").strip(), ADMIN_USER)
+            and hmac.compare_digest(pw_hash, ADMIN_PASSWORD_HASH))
 
 
 def is_allowed(email: str) -> bool:
@@ -133,7 +173,23 @@ def setup_auth(app: FastAPI) -> bool:
         request.session.clear()
         return RedirectResponse("/auth/login")
 
-    print(f"[auth] ENABLED — Google OAuth. allow domains={sorted(_DOMAINS)} emails={sorted(_EMAILS)}")
+    if ADMIN_ENABLED:
+        @app.get("/auth/admin", include_in_schema=False)
+        async def admin_form():
+            return HTMLResponse(_admin_html())
+
+        @app.post("/auth/admin", include_in_schema=False)
+        async def admin_login(request: Request):
+            form = await request.form()
+            user = form.get("username") or ""
+            if admin_credentials_ok(user, form.get("password") or ""):
+                request.session["user"] = f"admin:{user.strip()}"
+                return RedirectResponse("/", status_code=303)
+            print("[auth] admin login rejected")
+            return HTMLResponse(_admin_html("Invalid credentials"), status_code=403)
+
+    print(f"[auth] ENABLED — Google OAuth. allow domains={sorted(_DOMAINS)} emails={sorted(_EMAILS)}"
+          f"{' + admin backfill' if ADMIN_ENABLED else ''}")
     return True
 
 
