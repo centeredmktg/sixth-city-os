@@ -46,11 +46,12 @@ class HubSpotClient:
                 "Content-Type": "application/json",
             })
 
-    def _post(self, path: str, payload: dict) -> dict:
-        """POST with 429/5xx retry + backoff (HubSpot rate limits the Search API hard).
+    def _request(self, method: str, path: str, payload: dict) -> dict:
+        """HTTP with 429/5xx retry + backoff (HubSpot rate limits the Search API hard).
         Respects Retry-After when present, else exponential backoff (capped)."""
+        call = getattr(self._session, method)
         for attempt in range(_MAX_RETRIES + 1):
-            r = self._session.post(f"{API}{path}", json=payload, timeout=30)
+            r = call(f"{API}{path}", json=payload, timeout=30)
             if (r.status_code == 429 or 500 <= r.status_code < 600) and attempt < _MAX_RETRIES:
                 retry_after = r.headers.get("Retry-After")
                 wait = float(retry_after) if retry_after and retry_after.replace(".", "", 1).isdigit() \
@@ -60,6 +61,12 @@ class HubSpotClient:
             r.raise_for_status()
             return r.json() if r.content else {}
         return {}
+
+    def _post(self, path: str, payload: dict) -> dict:
+        return self._request("post", path, payload)
+
+    def _put(self, path: str, payload: dict) -> dict:
+        return self._request("put", path, payload)
 
     # --- net-new gate -------------------------------------------------------
     def existing_domains(self, domains: list[str]) -> set[str]:
@@ -147,10 +154,41 @@ class HubSpotClient:
         }})
         new_id = created["id"]
         print(f"  [claimed] {account.domain} -> id {new_id} | machine_sourced=true")
+        self._write_contact(new_id, getattr(account, "contact", None))
         # TODO: sequence enrollment is API-restricted (likely a workflow hand-off, not a
         # plain write). The net-new, tagged company is in; auto-enrolling the tailored
         # outreach is the follow-on once we resolve the enrollment path.
         return new_id
+
+    def _write_contact(self, company_id: str, contact: dict | None) -> None:
+        """Create a Contact from the site-scraped email/phone and associate it to the
+        just-claimed company, so sales sees a real address/line on the record. No email
+        AND no phone -> nothing worth writing, skip. Only called on net-new claims."""
+        contact = contact or {}
+        email = (contact.get("contact_email") or "").strip()
+        phone = (contact.get("contact_phone") or "").strip()
+        if not email and not phone:
+            return
+        props: dict = {}
+        if email:
+            props["email"] = email
+        if phone:
+            props["phone"] = phone
+        name = (contact.get("contact_name") or "").strip()
+        if name:
+            first, _, last = name.partition(" ")
+            props["firstname"] = first
+            if last:
+                props["lastname"] = last
+        created = self._post("/crm/v3/objects/contacts", {"properties": props})
+        contact_id = created.get("id")
+        if not contact_id:
+            return
+        # v4 'default' association — applies the standard contact<->company link without
+        # a brittle numeric associationTypeId.
+        self._put(f"/crm/v4/objects/companies/{company_id}/associations/default/"
+                  f"contacts/{contact_id}", {})
+        print(f"  [contact] {email or phone} -> contact {contact_id} assoc company {company_id}")
 
     # --- read the scoreboard back ------------------------------------------
     def attribution_rows(self) -> list[Attribution]:

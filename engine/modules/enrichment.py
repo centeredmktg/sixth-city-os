@@ -1,24 +1,50 @@
 """
-Adapter -> Centered skill `outbound-engine/csv-lead-enrichment`.
+Contact enrichment — hand sales a real email + phone for a pursued account.
 
-Fills in contact-level data (decision-maker name, email, phone, LinkedIn) once an
-account is worth pursuing. Runs AFTER scoring so we only spend enrichment credits
-on accounts that clear the bar.
+Free first layer: the email/phone that `sources/site_audit.py` already scraped off the
+homepage (domain-matched), stashed on `account.extra["site_emails"]` / `["site_phones"]`.
+This adapter just surfaces it. Paid decision-maker lookup (Apollo / PDL) layers on top
+later for the name/title the site can't give us.
 
-Stub status: stamps a placeholder contact. Real version runs the enrichment skill
-against Apollo / People Data Labs (SOURCES.md Layer 1).
+Contract (Danny, sales-ops):
+ - Prefer a named person (john@) over generic role inboxes (info@/sales@); keep the rest
+   as a ranked fallback list (`contact_emails`).
+ - No real email found -> leave `contact_email` BLANK. Never surface an unverified guess.
 """
 
 from __future__ import annotations
 
 from engine.models import Account
 
+# Role/shared inboxes — real, but a named human is better for personalized outreach, so
+# these rank below any named address.
+_GENERIC_LOCALPARTS = {
+    "info", "sales", "contact", "hello", "admin", "support", "office", "team", "mail",
+    "inquiries", "enquiries", "hi", "marketing", "billing", "accounts", "accounting",
+    "careers", "jobs", "hr", "help", "service", "general", "reception",
+}
 
-def enrich_contacts(account: Account) -> dict[str, str]:
-    """Return contact fields for the account's decision-maker. Stub = placeholder."""
-    # TODO: wire csv-lead-enrichment skill + Apollo/PDL
+
+def _rank_emails(emails: list[str]) -> list[str]:
+    """Named people first, then generic role inboxes; alphabetical within each group."""
+    def key(e: str) -> tuple[bool, str]:
+        local = e.split("@", 1)[0].lower()
+        return (local in _GENERIC_LOCALPARTS, e.lower())
+    return sorted(emails, key=key)
+
+
+def enrich_contacts(account: Account) -> dict:
+    """Return contact fields for the account, sourced from the site crawl.
+    Name/title stay blank until a decision-maker lookup (Apollo) fills them."""
+    extra = account.extra or {}
+    emails = _rank_emails(extra.get("site_emails") or [])
+    phones = extra.get("site_phones") or []
+    primary_email = emails[0] if emails else ""
     return {
-        "contact_name": "TBD",
-        "contact_email": f"info@{account.domain}",
-        "contact_title": "Owner",
+        "contact_name": "",
+        "contact_title": "",
+        "contact_email": primary_email,
+        "contact_email_source": "site" if primary_email else "",
+        "contact_emails": emails,
+        "contact_phone": phones[0] if phones else "",
     }
