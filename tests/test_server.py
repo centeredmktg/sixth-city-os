@@ -155,6 +155,20 @@ def test_enrich_endpoint_returns_progress(client, monkeypatch):
     assert "enriched" in body and "remaining" in body
 
 
+def test_enrich_places_endpoint_runs_second_pass(client, monkeypatch):
+    import engine.jobs.enrich as enrichmod
+    monkeypatch.setattr(enrichmod, "default_sources", lambda: [])  # pass 1: no network
+    csv = "Name,Domain\nAcme,acme.example\n"
+    client.post("/api/ingest", files={"file": ("c.csv", io.BytesIO(csv.encode()), "text/csv")})
+    client.post("/api/enrich?limit=10")               # marks the row enriched + net_new
+    # Places source is dry without GOOGLE_PLACES_KEY -> no network, no spend, but the
+    # eligible row is still processed (places_enriched flag set, re-scored).
+    r = client.post("/api/enrich-places?limit=10")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["enriched"] == 1 and "remaining" in body
+
+
 def test_scoreboard_value_metrics_no_revshare(client):
     """Scoreboard reports THEIR engine-impact value (surfaced / perfect-fit / in-CRM)
     and a pending outcome funnel — never rev-share (that's backend-only)."""
