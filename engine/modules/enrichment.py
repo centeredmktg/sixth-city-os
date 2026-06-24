@@ -34,17 +34,20 @@ def _rank_emails(emails: list[str]) -> list[str]:
 
 
 def enrich_contacts(account: Account) -> dict:
-    """Return contact fields for the account, sourced from the site crawl.
+    """Return contact fields for the account, sourced from the crawl. Phone prefers the
+    Google Business line (canonical for a local SMB), then the site-scraped number.
     Name/title stay blank until a decision-maker lookup (Apollo) fills them."""
     extra = account.extra or {}
     emails = _rank_emails(extra.get("site_emails") or [])
-    phones = extra.get("site_phones") or []
+    site_phones = extra.get("site_phones") or []
     primary_email = emails[0] if emails else ""
+    phone = (extra.get("places_phone") or "").strip() or (site_phones[0].strip() if site_phones else "")
     return {
         "contact_name": "",
         "contact_title": "",
         "contact_email": primary_email,
         "contact_email_source": "site" if primary_email else "",
         "contact_emails": emails,
-        "contact_phone": phones[0] if phones else "",
+        "contact_phone": phone,
+        "contact_address": (extra.get("places_address") or "").strip(),
     }
