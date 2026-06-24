@@ -32,6 +32,7 @@ class AccountRow(Base):
     enriched: Mapped[bool] = mapped_column(Boolean, default=False)
     net_new: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
     pursued: Mapped[bool] = mapped_column(Boolean, default=False)   # operator committed -> contacts sourced
+    places_enriched: Mapped[bool] = mapped_column(Boolean, default=False)  # Places 2nd pass done
 
     # score (engine.models.Score)
     fit: Mapped[float] = mapped_column(Float, default=0.0)

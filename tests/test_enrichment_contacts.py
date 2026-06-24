@@ -49,3 +49,18 @@ def test_no_site_data_returns_all_blanks_no_placeholder():
     assert out["contact_phone"] == ""
     assert out["contact_name"] == ""                           # dropped the "TBD" placeholder
     assert out["contact_emails"] == []
+
+
+def test_contact_phone_prefers_places_phone_over_site_phone():
+    acct = _acct(places_phone="(216) 555-1234", site_phones=["(330) 555-9876"],
+                 places_address="1 Main St, Cleveland OH")
+    out = enrich_contacts(acct)
+    assert out["contact_phone"] == "(216) 555-1234"   # GBP line wins
+    assert out["contact_address"] == "1 Main St, Cleveland OH"
+
+
+def test_contact_phone_falls_back_to_site_phone_when_no_places():
+    acct = _acct(site_phones=["(330) 555-9876"])
+    out = enrich_contacts(acct)
+    assert out["contact_phone"] == "(330) 555-9876"
+    assert out["contact_address"] == ""
