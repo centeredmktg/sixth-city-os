@@ -55,7 +55,7 @@ function whyNow(a) {
 
 function MorningQueue({ onConfirmed, onError }) {
   const [done, setDone] = useStateQ({});
-  const [busy, setBusy] = useStateQ(false);
+  const [busy, setBusy] = useStateQ({});   // domain -> true while ITS push is in flight (per-row, not page-wide)
 
   // Today's worklist: net-new with a CONFIRMED in-market signal (actively running
   // ads / hiring / just launched) — the firms a real buying signal says to work NOW.
@@ -67,14 +67,22 @@ function MorningQueue({ onConfirmed, onError }) {
   const left = queue.filter((a) => !done[a.domain]);
 
   async function work(domain) {
-    if (busy || done[domain]) return;
-    setBusy(true);
+    if (busy[domain] || done[domain]) return;
+    setBusy((b) => ({ ...b, [domain]: true }));
     try {
-      await PEQ.pushDomains([domain]);
-      setDone((d) => ({ ...d, [domain]: true }));
-      await PEQ.refresh();
-      onConfirmed && onConfirmed(1);
-    } catch (e) { onError && onError(e); } finally { setBusy(false); }
+      // The Morning Queue IS the work-now list — confirming claims it as closer.
+      const res = await PEQ.pushDomains([domain], "closer");
+      const r = (res.results || []).find((x) => x.domain === domain);
+      if (r && r.status === "claimed") {
+        setDone((d) => ({ ...d, [domain]: true }));
+        await PEQ.refresh();
+        onConfirmed && onConfirmed(1);
+      } else {
+        // Server pushed nothing for this firm — surface why instead of faking success.
+        onError && onError(new Error(r && r.reason ? r.reason : "Not claimed — nothing was pushed to HubSpot"));
+      }
+    } catch (e) { onError && onError(e); }
+    finally { setBusy((b) => { const n = { ...b }; delete n[domain]; return n; }); }
   }
 
   return (
@@ -122,7 +130,7 @@ function MorningQueue({ onConfirmed, onError }) {
                   <div className="mq-sc"><div className="mq-sc__v">{Math.round(a.total || 0)}</div><div className="mq-sc__k">score</div></div>
                   {isDone
                     ? <div className="mq-done"><IcoQ.CheckCheck size={16} /> Pushed</div>
-                    : <BtnQ variant="primary" size="sm" icon={<IcoQ.Check size={14} />} disabled={busy} onClick={() => work(a.domain)}>Confirm → push</BtnQ>}
+                    : <BtnQ variant="primary" size="sm" icon={<IcoQ.Check size={14} />} disabled={!!busy[a.domain]} onClick={() => work(a.domain)}>{busy[a.domain] ? "Pushing…" : "Confirm → push"}</BtnQ>}
                 </div>
               </div>
             );

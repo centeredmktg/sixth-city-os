@@ -104,7 +104,7 @@ function TriageBoard({ onConfirmed, onError }) {
   const all = useMemoT(() => PET.STREAM.filter((a) => a.dedupe !== "merged"), [PET.STREAM]);
   const [overrides, setOverrides] = useStateT({});   // domain -> route key (operator override)
   const [confirmed, setConfirmed] = useStateT({});    // domain -> true (pushed)
-  const [busy, setBusy] = useStateT(false);
+  const [busy, setBusy] = useStateT({});              // domain -> true while ITS push is in flight (per-row, not page-wide)
 
   const routeOf = (a) => overrides[a.domain] || a.route || "nurture";
   const setRoute = (domain, key) => setOverrides((o) => ({ ...o, [domain]: key }));
@@ -112,19 +112,31 @@ function TriageBoard({ onConfirmed, onError }) {
   const awaiting = all.filter((a) => !confirmed[a.domain]);
   const counts = ROUTES.reduce((m, r) => (m[r.key] = all.filter((a) => routeOf(a) === r.key).length, m), {});
   const obvious = awaiting.filter((a) => routeOf(a) === "closer" && a.band === "A").map((a) => a.domain);
+  const bulkBusy = obvious.some((d) => busy[d]);   // bulk button reflects only its own in-flight set
 
   async function confirm(domains) {
-    const list = domains.filter((d) => !confirmed[d]);
-    if (!list.length || busy) return;
-    setBusy(true);
+    const list = domains.filter((d) => !confirmed[d] && !busy[d]);
+    if (!list.length) return;
+    setBusy((b) => { const n = { ...b }; list.forEach((d) => (n[d] = true)); return n; });
     try {
-      await PET.pushDomains(list);
-      setConfirmed((c) => { const n = { ...c }; list.forEach((d) => (n[d] = true)); return n; });
-      await PET.refresh();
-      onConfirmed && onConfirmed(list.length);
+      // The push buttons only appear on closer-routed rows, so confirming claims them as closer.
+      const res = await PET.pushDomains(list, "closer");
+      const byDom = {}; (res.results || []).forEach((x) => (byDom[x.domain] = x));
+      const claimed = list.filter((d) => byDom[d] && byDom[d].status === "claimed");
+      if (claimed.length) {
+        setConfirmed((c) => { const n = { ...c }; claimed.forEach((d) => (n[d] = true)); return n; });
+        await PET.refresh();
+        onConfirmed && onConfirmed(claimed.length);
+      }
+      // Anything the server didn't claim: surface why rather than silently flip it done.
+      const missed = list.filter((d) => !byDom[d] || byDom[d].status !== "claimed");
+      if (missed.length) {
+        const why = missed.map((d) => d + ((byDom[d] && byDom[d].reason) ? `: ${byDom[d].reason}` : "")).join("; ");
+        onError && onError(new Error("Not claimed — " + why));
+      }
     } catch (e) {
       onError && onError(e);
-    } finally { setBusy(false); }
+    } finally { setBusy((b) => { const n = { ...b }; list.forEach((d) => delete n[d]); return n; }); }
   }
 
   return (
@@ -152,8 +164,8 @@ function TriageBoard({ onConfirmed, onError }) {
             <div className="tg-bar__t"><b>{awaiting.length}</b> awaiting your call · <b>{Object.keys(confirmed).length}</b> confirmed</div>
             <div className="tg-bar__sp" />
             <BtnT variant="primary" size="sm" icon={<IcoT.Zap size={14} />}
-              disabled={busy || !obvious.length} onClick={() => confirm(obvious)}>
-              {busy ? "Confirming…" : `Bulk-confirm ${obvious.length} obvious (A → LFG)`}
+              disabled={bulkBusy || !obvious.length} onClick={() => confirm(obvious)}>
+              {bulkBusy ? "Confirming…" : `Bulk-confirm ${obvious.length} obvious (A → LFG)`}
             </BtnT>
           </div>
 
@@ -203,7 +215,7 @@ function TriageBoard({ onConfirmed, onError }) {
                             ))}
                           </div>
                           {r === "closer"
-                            ? <BtnT variant="primary" size="sm" icon={<IcoT.Check size={14} />} disabled={busy} onClick={() => confirm([a.domain])}>Confirm LFG</BtnT>
+                            ? <BtnT variant="primary" size="sm" icon={<IcoT.Check size={14} />} disabled={!!busy[a.domain]} onClick={() => confirm([a.domain])}>{busy[a.domain] ? "Pushing…" : "Confirm LFG"}</BtnT>
                             : <span style={{ fontSize: 11, color: "var(--text-subtle)" }}>{r === "reject" ? "won't be worked" : "marketing track — no push"}</span>}
                         </React.Fragment>
                       )}
