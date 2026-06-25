@@ -22,6 +22,7 @@ from engine.db.models import AccountRow
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
 from engine.jobs import enrich as enrich_job
+from engine.jobs import enrich_places
 from engine.jobs import push_to_hubspot
 from engine.modules import draft_cold_email
 from engine.models import Route, Stage
@@ -225,6 +226,16 @@ def enrich(limit: int = 20, session=Depends(db_session)):
     not-yet-enriched accounts; re-scores them. Idempotent + resumable — the console
     loops this until remaining == 0."""
     return enrich_job.run(session, limit=limit)
+
+
+@app.post("/api/enrich-places")
+def enrich_places_pass(limit: int = 50, session=Depends(db_session)):
+    """Second pass: run the (paid) Google Places source over the top-N net-new accounts
+    already through free enrichment — pulls the GBP phone/address (contact) + a
+    LOCAL_SEO_GAP signal, then re-scores. Idempotent + resumable (the places_enriched
+    flag). Dry without GOOGLE_PLACES_KEY -> no-op, zero spend. Cron runs this AFTER
+    /api/enrich has drained (remaining == 0)."""
+    return enrich_places.run(session, limit=limit)
 
 
 @app.post("/api/push")
