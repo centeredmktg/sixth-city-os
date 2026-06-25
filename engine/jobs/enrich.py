@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 from engine.db.models import AccountRow, SignalRow
 from engine.db import repo
 from engine.scoring import abcr
+from engine import routing
 
 
 def default_sources():
@@ -87,6 +88,16 @@ def run(session: Session, limit: int = 20, workers: int = 5, sources=None,
         acct.score = abcr.score(acct)
         row.fit, row.timing, row.total = acct.score.fit, acct.score.timing, acct.score.total
         row.band, row.score_rationale = acct.score.band, acct.score.rationale
+        # Re-route on the freshly corroborated signals. At ingest a single-signal firm
+        # reads 'nurture' (one signal is noise); once enrichment adds a 2nd agreeing
+        # signal it may now be pain-qualified for 'closer'. Without this the ingest-time
+        # recommendation is frozen and good firms never surface for the operator to
+        # bulk-confirm. Refresh the RECOMMENDATION only — never touch an operator's
+        # confirmed route (their call stands; effective route already honors it).
+        if not row.route_confirmed:
+            rec = routing.recommend(acct)
+            row.route_recommended = rec.recommended.value
+            row.route_rationale = rec.rationale
         row.extra = acct.extra or {}   # persist site-scraped emails (site_audit set them)
         row.enriched = True
 

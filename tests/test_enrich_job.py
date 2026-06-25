@@ -66,3 +66,60 @@ def test_in_book_domain_flagged_not_signal_enriched():
     assert rows["d1.com"].net_new is True
     assert rows["d1.com"].enriched is True
     assert any(sg.kind == "site_quality" for sg in rows["d1.com"].signals)
+
+
+def test_enrich_reroutes_unconfirmed_account_on_new_signal(monkeypatch):
+    """After enrichment adds a corroborating signal, the route recommendation is
+    REFRESHED: a 1-signal 'nurture' firm that now has 2 agreeing signals + in-market
+    timing is promoted to a 'closer' recommendation. (Operator still confirms — this
+    is the momentum fix: stop freezing the ingest-time recommendation.)"""
+    from engine.db.models import SignalRow
+    from engine.scoring import abcr
+    from engine.models import Score
+    # Deterministic in-market score so the test isn't coupled to scoring weights.
+    monkeypatch.setattr(abcr, "score",
+                        lambda acct: Score(fit=80.0, timing=90.0, total=88.0, band="A", rationale="stub"))
+
+    eng = make_engine("sqlite:///:memory:")
+    create_all(eng)
+    s = make_session_factory(eng)()
+    row = AccountRow(domain="promote.com", name="Promote", total=20.0,
+                     route_recommended="nurture", route_confirmed=False)
+    # One pre-existing INTENT signal -> at ingest this read as a single-signal 'nurture'.
+    row.signals.append(SignalRow(kind=SignalKind.ADS_ACTIVE.value, source="clay", value=1.0, detail="ads"))
+    s.add(row)
+    s.commit()
+
+    # FakeSource adds a DISTINCT 2nd kind (site_quality) -> now pain-qualified.
+    enrich.run(s, limit=10, workers=1, sources=[FakeSource()], existing_fn=lambda doms: set())
+
+    refreshed = s.query(AccountRow).filter_by(domain="promote.com").one()
+    assert refreshed.route_recommended == "closer"
+    assert "pain-qualified" in refreshed.route_rationale
+
+
+def test_enrich_does_not_clobber_operator_confirmed_route(monkeypatch):
+    """Re-routing only refreshes the RECOMMENDATION. An account the operator already
+    confirmed/overrode is left untouched, even if it would now qualify for closer."""
+    from engine.db.models import SignalRow
+    from engine.scoring import abcr
+    from engine.models import Score
+    monkeypatch.setattr(abcr, "score",
+                        lambda acct: Score(fit=80.0, timing=90.0, total=88.0, band="A", rationale="stub"))
+
+    eng = make_engine("sqlite:///:memory:")
+    create_all(eng)
+    s = make_session_factory(eng)()
+    row = AccountRow(domain="locked.com", name="Locked", total=20.0,
+                     route_recommended="nurture", route_confirmed=True,
+                     route_confirmed_route="nurture", route_confirmed_by="operator")
+    row.signals.append(SignalRow(kind=SignalKind.ADS_ACTIVE.value, source="clay", value=1.0, detail="ads"))
+    s.add(row)
+    s.commit()
+
+    enrich.run(s, limit=10, workers=1, sources=[FakeSource()], existing_fn=lambda doms: set())
+
+    locked = s.query(AccountRow).filter_by(domain="locked.com").one()
+    assert locked.route_recommended == "nurture"        # recommendation untouched
+    assert locked.route_confirmed is True
+    assert locked.route_confirmed_route == "nurture"
