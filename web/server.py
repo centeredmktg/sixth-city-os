@@ -33,6 +33,10 @@ from web import auth
 
 class PushRequest(BaseModel):
     domains: list[str]
+    # The route the operator ELECTED (e.g. "closer" from a Confirm→push / LFG click).
+    # Applied as the confirmed override so the push job claims it; without this the
+    # server reads the stored recommendation (often "nurture") and silently no-ops.
+    route: str | None = None
 
 
 class RevalidateStaticFiles(StaticFiles):
@@ -227,21 +231,53 @@ def enrich(limit: int = 20, session=Depends(db_session)):
 def push(req: PushRequest, session=Depends(db_session)):
     selected = {a.domain: a for a in repo.get_candidates(session)
                 if a.domain in set(req.domains)}
-    # Confirm the HITL gate for the operator-selected firms, then run the push job
-    # (which re-validates net-new by domain at claim time as the SLA guard).
+
+    override = None
+    if req.route:
+        try:
+            override = Route(req.route)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"unknown route {req.route!r}")
+
+    # Confirm the HITL gate for the operator-selected firms, applying their elected
+    # route as the override, then run the push job (which re-validates net-new by
+    # domain at claim time as the SLA guard).
     for a in selected.values():
         a.route.confirmed = True
         a.route.confirmed_by = "operator"
+        if override is not None:
+            a.route.confirmed_route = override
 
-    pushed = push_to_hubspot.run(list(selected.values()))
+    pushed_by_domain = {a.domain: a for a in push_to_hubspot.run(list(selected.values()))}
 
+    # Honest per-domain outcome — the UI marks a row "Pushed" ONLY on "claimed", and
+    # surfaces the reason otherwise (so a silent no-op can't read as success).
     results = []
-    for a in pushed:
-        if a.hubspot_id and not a.hubspot_id.startswith("dry-"):
-            repo.mark_pushed(session, a.domain, a.hubspot_id)
-        results.append({"domain": a.domain, "hubspot_id": a.hubspot_id})
+    claimed = 0
+    for dom, a in selected.items():
+        p = pushed_by_domain.get(dom)
+        if p is not None and getattr(p, "claimed", bool(p.hubspot_id)) \
+                and p.hubspot_id and not p.hubspot_id.startswith("dry-"):
+            repo.mark_pushed(session, dom, p.hubspot_id)
+            claimed += 1
+            results.append({"domain": dom, "status": "claimed", "hubspot_id": p.hubspot_id})
+        elif p is not None and getattr(p, "claimed", True):
+            # Reached the claim and "succeeded" but not persistable (dry run) — treat
+            # as claimed for the UI flow; nothing was written to the DB or CRM.
+            results.append({"domain": dom, "status": "claimed", "hubspot_id": p.hubspot_id})
+        elif p is not None:
+            results.append({"domain": dom, "status": "exists", "hubspot_id": p.hubspot_id,
+                            "reason": "already in HubSpot — not claimed"})
+        elif a.route.effective != Route.CLOSER:
+            results.append({"domain": dom, "status": "skipped",
+                            "reason": f"routed {a.route.effective.value} — only LFG/closer is claimed"})
+        else:
+            results.append({"domain": dom, "status": "exists",
+                            "reason": "already in HubSpot — not claimed"})
 
-    return {"pushed": results, "count": len(results), "scoreboard": dashboard.build()}
+    return {"results": results, "claimed": claimed, "count": claimed,
+            "pushed": [r for r in results if r["status"] == "claimed"],
+            "scoreboard": dashboard.build()}
 
 
 def _contact_dict(c) -> dict:

@@ -144,6 +144,52 @@ def test_push_claims_selected_and_drops_them(client, monkeypatch):
     assert "buckeye.example" not in {c["domain"] for c in cands}
 
 
+def test_push_with_route_override_claims_nurture_domain(client, monkeypatch):
+    """Bug B: the operator's route choice must reach the server. A nurture-recommended
+    firm the operator elects as closer (LFG) gets claimed. Without the override the
+    server reads the stored route (nurture) and silently pushes nothing."""
+    import web.server as server
+    monkeypatch.setattr(server.HubSpotClient, "push",
+                        lambda self, account, outreach: f"hs-{account.domain}")
+    monkeypatch.setattr("web.server.dashboard.build", lambda: "SCOREBOARD")
+    client.post("/api/ingest",
+                files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
+
+    # lakeshore is recommended nurture (1 signal); elect it closer and claim it.
+    r = client.post("/api/push", json={"domains": ["lakeshore.example"], "route": "closer"})
+    assert r.status_code == 200
+    body = r.json()
+    res = {x["domain"]: x for x in body["results"]}
+    assert res["lakeshore.example"]["status"] == "claimed"
+    assert res["lakeshore.example"]["hubspot_id"] == "hs-lakeshore.example"
+    assert body["claimed"] == 1
+    # claimed -> dropped from the queue
+    cands = {c["domain"] for c in client.get("/api/candidates").json()["candidates"]}
+    assert "lakeshore.example" not in cands
+
+
+def test_push_without_override_reports_skip_not_silent_success(client, monkeypatch):
+    """Bug A: a nurture firm pushed WITHOUT electing closer is NOT claimed. The server
+    reports it skipped (with a reason) so the UI can't misread a no-op as 'Pushed'.
+    The firm stays in the queue — not falsely dropped."""
+    import web.server as server
+    monkeypatch.setattr(server.HubSpotClient, "push",
+                        lambda self, account, outreach: f"hs-{account.domain}")
+    monkeypatch.setattr("web.server.dashboard.build", lambda: "SCOREBOARD")
+    client.post("/api/ingest",
+                files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
+
+    r = client.post("/api/push", json={"domains": ["lakeshore.example"]})
+    assert r.status_code == 200
+    body = r.json()
+    res = {x["domain"]: x for x in body["results"]}
+    assert res["lakeshore.example"]["status"] == "skipped"
+    assert "nurture" in res["lakeshore.example"]["reason"]
+    assert body["claimed"] == 0
+    cands = {c["domain"] for c in client.get("/api/candidates").json()["candidates"]}
+    assert "lakeshore.example" in cands   # not falsely dropped
+
+
 def test_enrich_endpoint_returns_progress(client, monkeypatch):
     import engine.jobs.enrich as enrichmod
     monkeypatch.setattr(enrichmod, "default_sources", lambda: [])  # no network in test

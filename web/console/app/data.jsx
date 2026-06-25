@@ -193,15 +193,17 @@ async function fetchContacts(domain) {
 }
 
 /* Confirm the operator's routing call and push the selected firms into HubSpot.
-   The server re-checks each domain at claim time, so only net-new ones are created. */
-async function pushDomains(domains) {
+   `route` is the elected route (e.g. "closer") — REQUIRED for the server to claim a
+   firm whose stored recommendation isn't closer. The server re-checks net-new at claim
+   time and reports a per-domain outcome; callers must read `results`, not assume success. */
+async function pushDomains(domains, route) {
   const r = await fetch("/api/push", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ domains }),
+    body: JSON.stringify(route ? { domains, route } : { domains }),
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.detail || ("Push failed (" + r.status + ")"));
-  return j;   // { pushed, count, ... }
+  return j;   // { results:[{domain,status,hubspot_id,reason}], claimed, count, pushed }
 }
 
 async function ingestFile(file) {

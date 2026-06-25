@@ -134,6 +134,7 @@ class HubSpotClient:
         if self._dry:
             print(f"  [DRY] would create {account.domain} | {MACHINE_SOURCED_PROPERTY}=true "
                   f"| origin={account.discovered_by} | seq subject={outreach.subject!r}")
+            account.__dict__["claimed"] = True   # simulated claim (no write)
             return f"dry-{account.domain}"
 
         existing = self.find_company_id_by_domain(account.domain)
@@ -143,6 +144,7 @@ class HubSpotClient:
             # this is the single spot to change — add a PATCH that omits the 3 flag
             # properties.)
             print(f"  [exists] {account.domain} already in CRM (id {existing}) — not claimed")
+            account.__dict__["claimed"] = False   # found, NOT claimed — caller must not mark pushed
             return existing
 
         created = self._post("/crm/v3/objects/companies", {"properties": {
@@ -153,6 +155,7 @@ class HubSpotClient:
             MACHINE_SOURCED_DATE_PROPERTY: date.today().isoformat(),
         }})
         new_id = created["id"]
+        account.__dict__["claimed"] = True   # genuinely created + stamped machine_sourced
         print(f"  [claimed] {account.domain} -> id {new_id} | machine_sourced=true")
         self._write_contact(new_id, getattr(account, "contact", None))
         # TODO: sequence enrollment is API-restricted (likely a workflow hand-off, not a
