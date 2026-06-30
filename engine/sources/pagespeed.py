@@ -59,6 +59,17 @@ def _audit_value(audits: dict, key: str) -> str:
     return audits.get(key, {}).get("displayValue", "")
 
 
+def _verdict(score: int) -> str:
+    """Google's own Lighthouse performance bands (0-49 poor, 50-89 needs work,
+    90-100 good), phrased as a verdict instead of a number — '47/100' is a stat,
+    'in Google's red zone' is a judgment, and judgments earn replies."""
+    if score < 50:
+        return "in Google's red zone"
+    if score < 90:
+        return "below the line Google calls 'good'"
+    return "in the green"
+
+
 def parse(payload: dict, domain: str) -> list[Signal]:
     """PURE: PageSpeed Insights json -> SITE_QUALITY signal(s).
 
@@ -80,10 +91,23 @@ def parse(payload: dict, domain: str) -> list[Signal]:
     # reason, so it has to read like a human wrote it, not a metrics dump.
     metric_bits = [b for b in (f"LCP {lcp}" if lcp else "", f"CLS {cls}" if cls else "") if b]
     metric_str = (" — " + ", ".join(metric_bits)) if metric_bits else ""
-    detail = (
-        f"Mobile site scores {score}/100 on Google's performance audit"
-        f"{metric_str}. Slow, clunky load is quietly leaking conversions."
-    )
+    verdict = _verdict(score)
+    if score < 90:
+        # The double-hit framing: Google ranks mobile-first, so a slow mobile score
+        # is BOTH an SEO drag and a conversion leak — the second consequence most
+        # speed pitches forget. (Lesson from WP Engine's "under 60" alarm campaign.)
+        detail = (
+            f"Mobile homepage scores {score}/100 on Google's speed test{metric_str} "
+            f"— {verdict}. Google ranks mobile-first, so a slow score is a double hit: "
+            f"it drags their search ranking and frustrates the visitors who do land, "
+            f"quietly leaking conversions."
+        )
+    else:
+        # Honest: a fast site isn't the warm "your speed is leaking money" hook.
+        detail = (
+            f"Mobile homepage scores {score}/100 on Google's speed test{metric_str} "
+            f"— {verdict}. Site speed isn't the bottleneck here."
+        )
 
     return [
         Signal(
