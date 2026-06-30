@@ -30,7 +30,7 @@ def run(routed_accounts: list[Account]) -> list[Account]:
     for account in net_new:
         # Enrich contacts only now — after they cleared scoring (spend credits wisely)
         account.__dict__["contact"] = enrichment.enrich_contacts(account)
-        outreach = draft_cold_email.draft(account)
+        outreach = draft_cold_email.draft(account, live=True)  # shortlist only → AI draft
         account.hubspot_id = client.push(account, outreach)
         account.stage = Stage.PUSHED
         pushed.append(account)
