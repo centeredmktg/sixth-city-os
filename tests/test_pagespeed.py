@@ -43,11 +43,17 @@ class TestParse(unittest.TestCase):
         self.assertIn("34/100", s.detail)
         self.assertIn("LCP 5.1 s", s.detail)
         self.assertIn("CLS 0.28", s.detail)
+        # a sub-50 score is in Google's "poor" band — say so as a verdict, not a number
+        self.assertIn("red", s.detail.lower())
+        # the WP-Engine insight: name the SEO/ranking hit, not just the conversion leak
+        self.assertIn("rank", s.detail.lower())
 
     def test_good_site_still_produces_a_signal(self):
         signals = pagespeed.parse(FIXTURE_GOOD, "fastsite.example")
         self.assertEqual(len(signals), 1)
         self.assertEqual(signals[0].value, 96.0)
+        # honest framing: a fast site is not the warm "your speed is leaking money" hook
+        self.assertNotIn("red", signals[0].detail.lower())
 
     def test_missing_score_yields_no_signal(self):
         # A missing score is NOT a zero score — don't invent a signal we didn't measure.
