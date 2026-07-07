@@ -22,3 +22,11 @@ def test_unknown_on_gap_signals_only():
 
 def test_unknown_when_no_signals():
     assert routing.in_market_status(_acct())[0] == "unknown"
+
+
+def test_hiring_marketing_is_not_intent():
+    # Strategy rejected hiring-for-marketing as a buy signal (a firm hiring marketers is
+    # fixing it in-house = a harder sell). It must NOT confer in-market. The enum member
+    # is kept only for backward-compatible deserialization; it is intentionally unwired.
+    status, reason = routing.in_market_status(_acct(SignalKind.HIRING_MARKETING))
+    assert status == "unknown" and reason == ""

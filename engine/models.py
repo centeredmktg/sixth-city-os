@@ -92,7 +92,7 @@ class SignalKind(str, Enum):
     REVIEW_VELOCITY = "review_velocity" # losing the local pack on review recency/velocity
     # --- timing/intent triggers ---
     ADS_ACTIVE = "ads_active"           # already spending on ads = budget exists
-    HIRING_MARKETING = "hiring_marketing"
+    HIRING_MARKETING = "hiring_marketing"  # DEAD: strategy-rejected, no emitter, no weight, not an intent signal — kept only for deserialization
     NEW_LOCATION = "new_location"
 
 

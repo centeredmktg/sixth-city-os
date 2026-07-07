@@ -79,8 +79,8 @@ def _timing(account: Account) -> float:
             return 30
         if s.kind == SignalKind.CONTENT_GAP:
             return 25
-        if s.kind == SignalKind.HIRING_MARKETING:
-            return 50
+        # HIRING_MARKETING deliberately has no weight: strategy rejected it (a firm
+        # hiring marketers is fixing it in-house = a harder sell) and nothing emits it.
         return s.value * 0.3
 
     # Diminishing returns: the strongest signal counts full, each next one less.
