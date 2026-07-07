@@ -25,7 +25,10 @@ class OfficeHub:
     city: str
     lat: float
     lon: float
-    address: str = ""   # canonical local-SEO ranking address for this hub
+    address: str = ""       # canonical local-SEO ranking address for this hub
+    staffed: bool = False   # True = Sixth City has PEOPLE here, not just a ranking
+                            # address. Gates the in-person outreach offer and a higher
+                            # proximity ceiling. Only Chicago + Cleveland today.
 
 
 # Sixth City's six office hubs — coordinates geocoded from the real local-SEO
@@ -34,18 +37,20 @@ class OfficeHub:
 # RADIUS_MILES = 50 their proximity circles never overlap — every in-radius
 # account maps to exactly one hub.
 OFFICE_HUBS: list[OfficeHub] = [
-    OfficeHub("Cleveland",    41.50228, -81.68946, "815 Superior Ave E, Suite 1712, Cleveland, OH"),
+    OfficeHub("Cleveland",    41.50228, -81.68946, "815 Superior Ave E, Suite 1712, Cleveland, OH", staffed=True),
     OfficeHub("Columbus",     39.96349, -82.99972, "35 E Gay St, #324, Columbus, OH"),
     OfficeHub("Pittsburgh",   40.43983, -80.00170, "239 4th Avenue, #1915, Pittsburgh, PA"),
     OfficeHub("Indianapolis", 39.77351, -86.15571, "429 N Penn St, Suite 300H, Indianapolis, IN"),
-    OfficeHub("Chicago",      41.89292, -87.63300, "620 N La Salle St, Suite 415, Chicago, IL"),
+    OfficeHub("Chicago",      41.89292, -87.63300, "620 N La Salle St, Suite 415, Chicago, IL", staffed=True),
     OfficeHub("Nashville",    36.16397, -86.78191, "501 Union St, Suite 410, Nashville, TN"),
 ]
 
 RADIUS_MILES = 50.0      # within this of a hub = local advantage (tune)
-# TODO(Danny): the boost ceiling. 1.12 = an in-radius account scores 12% higher.
-# How much should "they're in our backyard" outweigh raw fit/timing?
-PROXIMITY_BOOST = 1.12
+# TODO(Danny): the boost ceilings. 1.12 = an in-radius account scores 12% higher.
+# How much should "they're in our backyard" outweigh raw fit/timing — and how much
+# MORE should "we have people in their city" (staffed) add on top?
+PROXIMITY_BOOST = 1.12          # default: an unstaffed ranking-address hub nearby
+STAFFED_PROXIMITY_BOOST = 1.20  # higher ceiling when the nearest hub is staffed
 
 
 def _haversine_miles(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -70,26 +75,52 @@ def _account_coords(account: Account) -> tuple[float, float] | None:
     return None
 
 
-def miles_to_nearest_hub(account: Account) -> float | None:
-    """Distance to the closest office hub, or None if we can't determine it
-    (no hubs configured, or no coords AND no city match)."""
+def _nearest_hub(account: Account) -> tuple[OfficeHub, float] | None:
+    """The closest office hub and the miles to it, or None if undeterminable (no hubs,
+    or no coords AND no city match). A same-city match counts as 0 mi (at the hub)."""
     if not OFFICE_HUBS:
         return None
     coords = _account_coords(account)
     if coords:
-        return min(_haversine_miles(*coords, h.lat, h.lon) for h in OFFICE_HUBS)
-    # Coarse fallback: same city as a hub = treat as in-radius (0 mi).
-    if account.city and any(account.city.lower() == h.city.lower() for h in OFFICE_HUBS):
-        return 0.0
+        best = min(OFFICE_HUBS, key=lambda h: _haversine_miles(*coords, h.lat, h.lon))
+        return best, _haversine_miles(*coords, best.lat, best.lon)
+    # Coarse fallback: same city as a hub = treat as at the hub (0 mi).
+    if account.city:
+        for h in OFFICE_HUBS:
+            if account.city.lower() == h.city.lower():
+                return h, 0.0
     return None
 
 
+def miles_to_nearest_hub(account: Account) -> float | None:
+    """Distance to the closest office hub, or None if we can't determine it."""
+    nh = _nearest_hub(account)
+    return nh[1] if nh else None
+
+
+def nearest_staffed_hub(account: Account) -> OfficeHub | None:
+    """The STAFFED hub this account is within RADIUS_MILES of, else None. Gates the
+    in-person outreach offer (#4). Because hubs are >2*RADIUS apart, an in-radius
+    account maps to exactly one hub — so 'is the nearest hub staffed and in range?'
+    fully answers 'can we credibly offer to meet in person?'."""
+    nh = _nearest_hub(account)
+    if nh is None:
+        return None
+    hub, miles = nh
+    return hub if (hub.staffed and miles < RADIUS_MILES) else None
+
+
 def proximity_weight(account: Account) -> float:
-    """Score multiplier: 1.0 neutral, up to PROXIMITY_BOOST for accounts within
-    RADIUS_MILES of a hub. Linear falloff from the hub out to the radius edge.
-    Returns 1.0 when location can't be determined — never penalizes on missing data."""
-    miles = miles_to_nearest_hub(account)
-    if miles is None or miles >= RADIUS_MILES:
+    """Score multiplier: 1.0 neutral, up to PROXIMITY_BOOST (or STAFFED_PROXIMITY_BOOST
+    when the nearest hub is staffed) for accounts within RADIUS_MILES of a hub. Linear
+    falloff from the hub out to the radius edge. Returns 1.0 when location can't be
+    determined — never penalizes on missing data."""
+    nh = _nearest_hub(account)
+    if nh is None:
         return 1.0
+    hub, miles = nh
+    if miles >= RADIUS_MILES:
+        return 1.0
+    ceiling = STAFFED_PROXIMITY_BOOST if hub.staffed else PROXIMITY_BOOST
     closeness = 1.0 - (miles / RADIUS_MILES)        # 1.0 at the hub, 0.0 at the edge
-    return 1.0 + (PROXIMITY_BOOST - 1.0) * closeness
+    return 1.0 + (ceiling - 1.0) * closeness

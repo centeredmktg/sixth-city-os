@@ -20,6 +20,7 @@ import json
 
 from engine.config import CONFIG
 from engine.models import Account, Outreach, Signal, Vertical
+from engine.modules import outreach_hooks
 
 MODEL = "claude-opus-4-8"
 
@@ -81,16 +82,19 @@ def draft(account: Account, live: bool = False) -> Outreach:
     who = "businesses across Ohio" if account.vertical is Vertical.UNKNOWN \
         else f"{vertical} businesses across Ohio"
     subject = f"Quick note on {account.name}'s website"
-    body = (
-        f"Hi — ran {account.name} through our site evaluation. {reason}\n\n"
-        f"The usual pitch when something like this turns up is a quick fix — a "
-        f"plugin, a new ad set, a redesign. But a point fix doesn't ask the bigger "
-        f"question: is your digital footprint actually pointed at where the business "
-        f"is trying to go?\n\n"
-        f"That's the part we handle — the right team aligning your whole digital "
-        f"footprint with your business goals, not chasing one number. We do it for "
-        f"{who}. Worth 15 minutes?"
-    )
+    paragraphs = [
+        f"Hi — ran {account.name} through our site evaluation. {reason}",
+        "The usual pitch when something like this turns up is a quick fix — a plugin, "
+        "a new ad set, a redesign. But a point fix doesn't ask the bigger question: is "
+        "your digital footprint actually pointed at where the business is trying to go?",
+        "That's the part we handle — the right team aligning your whole digital footprint "
+        f"with your business goals, not chasing one number. We do it for {who}.",
+    ]
+    # Personalization layer: each fired hook (in-person offer, competitor mention, …)
+    # contributes its own paragraph, slotted before the close so the ask lands last.
+    paragraphs += [h.line for h in outreach_hooks.collect(account)]
+    paragraphs.append("Worth 15 minutes?")
+    body = "\n\n".join(paragraphs)
     return Outreach(
         account_domain=account.domain,
         subject=subject,
@@ -137,16 +141,30 @@ def _draft_live(account: Account, strongest, reason: str) -> Outreach | None:
     )
 
 
+def _user_message(account: Account, reason: str) -> str:
+    """The live prompt's user turn: the prospect, the signal to open on, and any
+    personalization facts the hook layer surfaced. Facts are OPTIONAL material — the
+    system prompt caps the email at 80 words and forbids fabricating specifics, so we
+    hand the model only true facts and let it decide what fits. Pure (no network) so
+    the fact injection is unit-testable without mocking the SDK."""
+    vertical = account.vertical.value.replace("_", "/")
+    region = "across Ohio" if account.vertical is Vertical.UNKNOWN else f"a {vertical} business in Ohio"
+    msg = (
+        f"Prospect: {account.name} ({account.domain}), {region}.\n"
+        f"Signal to open on: {reason}"
+    )
+    facts = [h.fact for h in outreach_hooks.collect(account)]
+    if facts:
+        msg += ("\n\nAdditional true context you MAY use, in your own words, only if it "
+                "fits under the word limit:\n" + "\n".join(f"- {f}" for f in facts))
+    return msg
+
+
 def _call_anthropic(account: Account, strongest, reason: str) -> dict | None:
     """The only side effect. Opus 4.8 + adaptive thinking + low effort + a cached
     system prompt + structured output. Swallows every error → None (like the
     sources' fetch())."""
-    vertical = account.vertical.value.replace("_", "/")
-    region = "across Ohio" if account.vertical is Vertical.UNKNOWN else f"a {vertical} business in Ohio"
-    user = (
-        f"Prospect: {account.name} ({account.domain}), {region}.\n"
-        f"Signal to open on: {reason}"
-    )
+    user = _user_message(account, reason)
     try:
         import anthropic
 

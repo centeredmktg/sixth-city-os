@@ -117,11 +117,16 @@ def score(account: Account) -> Score:
     base = fit * FIT_WEIGHT + timing * TIMING_WEIGHT
 
     # Office-hub proximity boost: accounts near a Sixth City hub score higher
-    # (local advantage = higher fit + close). Neutral (1.0) until hubs are set.
+    # (local advantage = higher fit + close). A STAFFED hub (people, not just a
+    # ranking address) lifts the ceiling further — see geo.proximity_weight.
     prox = geo.proximity_weight(account)
     total = min(100.0, base * prox)
 
-    prox_note = f" × proximity {prox:.2f}" if prox != 1.0 else ""
+    prox_note = ""
+    if prox != 1.0:
+        staffed = geo.nearest_staffed_hub(account)
+        tag = f" (staffed: {staffed.city})" if staffed else ""
+        prox_note = f" × proximity {prox:.2f}{tag}"
     return Score(
         fit=round(fit, 1),
         timing=round(timing, 1),
