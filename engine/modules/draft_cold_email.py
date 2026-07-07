@@ -57,8 +57,15 @@ _OUTPUT_SCHEMA = {
 
 
 def draft(account: Account, live: bool = False) -> Outreach:
-    """One Outreach for an account. `live=True` attempts the Anthropic draft (push
-    only); everything else, and any failure, returns the deterministic template."""
+    """One Outreach for an account. Precedence: a pre-generated draft stored on
+    the account (extra['outreach']) wins — it was already voice-matched, so we
+    surface it in the list AND reuse it at push instead of re-spending the key.
+    Otherwise `live=True` attempts a fresh Anthropic draft (push only); everything
+    else, and any failure, returns the deterministic template."""
+    stored = _stored_outreach(account)
+    if stored is not None:
+        return stored
+
     strongest = max(account.signals, key=_urgency, default=None)
     reason = strongest.detail if strongest else "we noticed an opportunity on your site"
 
@@ -90,6 +97,22 @@ def draft(account: Account, live: bool = False) -> Outreach:
         body=body,
         reason_signal=strongest.kind if strongest else None,
     )
+
+
+def _stored_outreach(account: Account) -> Outreach | None:
+    """A draft pre-generated into extra['outreach'] (e.g. the offline backlog pass).
+    Returned as-is so both the list preview and push reuse it — no token spend."""
+    extra = getattr(account, "extra", None)
+    o = extra.get("outreach") if isinstance(extra, dict) else None
+    if isinstance(o, dict) and o.get("subject") and o.get("body"):
+        strongest = max(account.signals, key=_urgency, default=None)
+        return Outreach(
+            account_domain=account.domain,
+            subject=str(o["subject"]),
+            body=str(o["body"]),
+            reason_signal=strongest.kind if strongest else None,
+        )
+    return None
 
 
 def _ai_enabled() -> bool:

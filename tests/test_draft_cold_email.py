@@ -55,6 +55,28 @@ def test_live_falls_back_to_template_on_api_failure(monkeypatch):
     assert "digital footprint" in o.body
 
 
+def test_stored_outreach_takes_precedence(monkeypatch):
+    # A pre-generated draft in extra wins over BOTH the template and a live call —
+    # so the offline backlog pass surfaces in the list and reuses at push (no spend).
+    a = _account()
+    a.extra = {"outreach": {"subject": "STORED SUBJ", "body": "STORED BODY"}}
+    assert draft_cold_email.draft(a).subject == "STORED SUBJ"           # over template
+    # even with live enabled, stored short-circuits before _call_anthropic
+    monkeypatch.setattr(draft_cold_email, "_ai_enabled", lambda: True)
+    monkeypatch.setattr(draft_cold_email, "_call_anthropic",
+                        lambda *a, **k: {"subject": "LIVE", "body": "LIVE"})
+    o = draft_cold_email.draft(a, live=True)
+    assert o.subject == "STORED SUBJ" and o.body == "STORED BODY"
+    assert o.reason_signal == SignalKind.SITE_QUALITY
+
+
+def test_partial_stored_outreach_ignored():
+    # Missing body → not a usable stored draft → fall through to template.
+    a = _account()
+    a.extra = {"outreach": {"subject": "only subject"}}
+    assert "digital footprint" in draft_cold_email.draft(a).body
+
+
 def test_unknown_vertical_proof_line_guarded():
     o = draft_cold_email.draft(_account(Vertical.UNKNOWN))
     assert "unknown businesses" not in o.body
