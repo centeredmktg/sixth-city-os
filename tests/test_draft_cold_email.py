@@ -81,3 +81,40 @@ def test_unknown_vertical_proof_line_guarded():
     o = draft_cold_email.draft(_account(Vertical.UNKNOWN))
     assert "unknown businesses" not in o.body
     assert "businesses across Ohio" in o.body
+
+
+# --- personalization hook layer (#4/#1/#2) -----------------------------------
+def _staffed_account():
+    a = _account()
+    a.city = "Cleveland"          # within the staffed Cleveland hub
+    return a
+
+
+def test_template_appends_in_person_line_for_staffed_city():
+    o = draft_cold_email.draft(_staffed_account())
+    assert "Cleveland" in o.body and "in person" in o.body
+    assert o.body.rstrip().endswith("Worth 15 minutes?")   # ask still lands last
+
+
+def test_template_no_in_person_line_for_unstaffed_city():
+    a = _account()
+    a.city = "Columbus"           # a hub, but unstaffed → no in-person offer
+    assert "in person" not in draft_cold_email.draft(a).body
+
+
+def test_stored_outreach_skips_hooks():
+    # Stored draft short-circuits before the hook layer — no in-person line grafted on.
+    a = _staffed_account()
+    a.extra = {"outreach": {"subject": "STORED", "body": "STORED BODY"}}
+    assert draft_cold_email.draft(a).body == "STORED BODY"
+
+
+def test_user_message_injects_hook_facts():
+    # The live prompt carries the in-person FACT so the model can weave it in voice.
+    msg = draft_cold_email._user_message(_staffed_account(), "reason here")
+    assert "staff in Cleveland" in msg and "Signal to open on: reason here" in msg
+
+
+def test_user_message_omits_facts_when_no_hooks_fire():
+    msg = draft_cold_email._user_message(_account(), "reason here")
+    assert "Additional true context" not in msg

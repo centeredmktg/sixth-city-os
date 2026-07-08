@@ -47,6 +47,48 @@ class TestProximityWeight(unittest.TestCase):
         self.assertLess(w, geo.PROXIMITY_BOOST)
 
 
+class TestStaffedProximity(unittest.TestCase):
+    """Staffed hubs (Sixth City has people there) get a higher proximity ceiling AND
+    gate the in-person outreach offer. Injects one staffed + one unstaffed hub,
+    >2*RADIUS apart, so each account maps to exactly one."""
+
+    def setUp(self):
+        self._saved = geo.OFFICE_HUBS
+        geo.OFFICE_HUBS = [
+            geo.OfficeHub("Cleveland", 41.4993, -81.6944, staffed=True),
+            geo.OfficeHub("Columbus", 39.9612, -82.9988, staffed=False),
+        ]
+
+    def tearDown(self):
+        geo.OFFICE_HUBS = self._saved
+
+    def _acct(self, **kw) -> Account:
+        return Account(name="x", domain="x.example", vertical=Vertical.UNKNOWN, **kw)
+
+    def test_staffed_hub_outscores_unstaffed_at_same_distance(self):
+        # Same-city (0 mi) match on each -> staffed ceiling beats the default ceiling.
+        w_staffed = geo.proximity_weight(self._acct(city="Cleveland"))
+        w_unstaffed = geo.proximity_weight(self._acct(city="Columbus"))
+        self.assertGreater(w_staffed, w_unstaffed)
+        self.assertAlmostEqual(w_staffed, geo.STAFFED_PROXIMITY_BOOST)
+        self.assertAlmostEqual(w_unstaffed, geo.PROXIMITY_BOOST)
+
+    def test_nearest_staffed_hub_returns_staffed_in_radius(self):
+        hub = geo.nearest_staffed_hub(self._acct(city="Cleveland"))
+        self.assertIsNotNone(hub)
+        self.assertEqual(hub.city, "Cleveland")
+
+    def test_nearest_staffed_hub_none_for_unstaffed_city(self):
+        self.assertIsNone(geo.nearest_staffed_hub(self._acct(city="Columbus")))
+
+    def test_nearest_staffed_hub_none_when_out_of_radius(self):
+        far = self._acct(extra={"lat": "34.05", "lon": "-118.24"})  # Los Angeles
+        self.assertIsNone(geo.nearest_staffed_hub(far))
+
+    def test_nearest_staffed_hub_none_when_no_location(self):
+        self.assertIsNone(geo.nearest_staffed_hub(self._acct(city="Nowhere")))
+
+
 class TestRealHubs(unittest.TestCase):
     """Guards the live OFFICE_HUBS list — not the math, the configuration."""
 
@@ -54,6 +96,12 @@ class TestRealHubs(unittest.TestCase):
         "Cleveland", "Columbus", "Pittsburgh",
         "Indianapolis", "Chicago", "Nashville",
     }
+
+    def test_only_chicago_and_cleveland_are_staffed(self):
+        # #4: the in-person offer + staffed proximity bump fire ONLY where Sixth City
+        # has physical people. Everywhere else is a ranking address, not a body.
+        staffed = {h.city for h in geo.OFFICE_HUBS if h.staffed}
+        self.assertEqual(staffed, {"Chicago", "Cleveland"})
 
     def test_six_hubs_present(self):
         self.assertEqual(len(geo.OFFICE_HUBS), 6)
