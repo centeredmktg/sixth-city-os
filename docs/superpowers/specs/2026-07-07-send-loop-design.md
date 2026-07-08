@@ -92,10 +92,27 @@ to enroll the follow-up manually.
 - Live-verify once the BCC is set: a BCC'd send **associates** to the machine-sourced
   company's contact (so the "reached out" metric moves).
 
-## Out of scope
+## Scope-expansion note (Danny, 2026-07-07)
 
-- In-app Gmail-API send (`gmail.send` sensitive scope + per-user token persistence) —
-  the later upgrade; same person-view UI, different send wiring.
+Danny is willing to expand dev scopes if it makes the send loop cleaner. Precisely what
+that unlocks — and doesn't:
+- **Does NOT resurrect HubSpot-native send.** That was an API-existence limit, not a
+  scope limit: HubSpot exposes no 1:1 sales-email *send* API for an app token at any
+  scope. Granting `crm.objects.emails.write` + `sales-email-read` only enables API-based
+  engagement *logging* (an alternative to BCC matching), not sending.
+- **DOES unlock the option-2 upgrade:** Google **`gmail.send`** → one-click in-app send.
+  The Internal OAuth consent screen means no Google verification hoop; cost = the GCP
+  consent-screen edit + persisting/refreshing per-user Google tokens server-side. This
+  upgrade is now sanctioned (not blocked) — the person-view UI is identical; only the
+  send button's wiring swaps from a compose deep-link to an authenticated API send.
+
+**Recommendation stands:** ship the compose-deep-link as v1 (fast; the human beat before
+a cold send is a deliverability/tone feature), then fast-follow with `gmail.send`
+one-click. If Danny prefers, re-scope the plan to go straight to `gmail.send`.
+
+## Out of scope (this version)
+
+- In-app Gmail-API send (`gmail.send`) — the sanctioned fast-follow (see above), not v1.
 - Auto sequence enrollment — no public API; revisit as a workflow bridge after the
   seat-tier check.
 - Per-person AI drafting — v1 reuses the voice-matched account draft addressed to the
