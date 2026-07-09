@@ -115,3 +115,14 @@ class SettingRow(Base):
 
     key: Mapped[str] = mapped_column(String, primary_key=True)
     value: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class GmailAccountRow(Base):
+    """A rep's connected Gmail, keyed by their email. Stores the OAuth refresh token
+    ENCRYPTED at rest (Fernet, TOKEN_ENC_KEY) — a leaked DB never exposes live mailbox
+    access. The send service exchanges it for a short-lived access token per send."""
+    __tablename__ = "gmail_accounts"
+
+    email: Mapped[str] = mapped_column(String, primary_key=True)
+    enc_refresh_token: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
