@@ -216,11 +216,39 @@ async function ingestFile(file) {
   return j;
 }
 
+// --- Compose/send: draft FOR a contact, edit, send (native Gmail) ------------
+async function composeMessage(domain, contactEmail) {
+  const r = await fetch("/api/messages", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domain, contact_email: contactEmail }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || ("Compose failed (" + r.status + ")"));
+  return j;   // message dict: {id, subject, body, status, ...}
+}
+
+async function editMessage(id, subject, body) {
+  const r = await fetch("/api/messages/" + id, {
+    method: "PATCH", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ subject, body }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || "Save failed");
+  return j;
+}
+
+async function sendMessage(id) {
+  const r = await fetch("/api/messages/" + id + "/send", { method: "POST" });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || "Send failed");
+  return j;   // { sent, reason?, gmail_message_id? }
+}
+
 Object.assign(window.PE, {
   Vertical, SignalKind, RUN, STAGES, STATUS, ROLE,
   ACTIVE_SOURCES, ONDECK_SOURCES, STREAM,
   siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, pushDomains, fetchScoreboard,
-  pursueDomains, fetchContacts, LAST_INGEST: null,
+  pursueDomains, fetchContacts, composeMessage, editMessage, sendMessage, LAST_INGEST: null,
   ops: { name: "John Sammon", title: "Owner / Sixth City" },
   danny: { name: "Danny Cox", title: "Pipeline Ops" },
 });
