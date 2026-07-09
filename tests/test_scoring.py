@@ -1,6 +1,6 @@
 """Vertical fit is win-rate-weighted, not flat — the data-backed scoring change."""
-from engine.models import Account, Vertical
-from engine.scoring.abcr import _fit, VERTICAL_FIT_BONUS
+from engine.models import Account, Signal, SignalKind, Vertical
+from engine.scoring.abcr import _fit, _timing, VERTICAL_FIT_BONUS
 
 
 def _acct(vertical):
@@ -33,3 +33,12 @@ def test_weight_ordering_matches_win_history():
     assert b[Vertical.INDUSTRIAL_MANUFACTURING] == b[Vertical.REAL_ESTATE] == 16
     assert b[Vertical.RETAIL_ECOMMERCE] == 2
     assert b[Vertical.INDUSTRIAL_MANUFACTURING] > b[Vertical.HEALTHCARE] > b[Vertical.RETAIL_ECOMMERCE]
+
+
+def test_hiring_marketing_has_no_special_timing_weight():
+    """Dead, strategy-rejected signal: no bespoke +50 boost. It falls through to the
+    generic weak contribution (value * 0.3) like any unmapped signal — pre-removal this
+    returned a fixed 50, contradicting the thesis that hiring marketers = harder sell."""
+    a = Account(name="x", domain="x.com")
+    a.signals = [Signal(kind=SignalKind.HIRING_MARKETING, source="t", value=10.0)]
+    assert _timing(a) == 10.0 * 0.3

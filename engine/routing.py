@@ -31,10 +31,12 @@ MIN_AGREEING_SIGNALS = 2    # Blueprint PQS rule: a pain qualifies only when ≥
 # closer/BDR sets it after contact. The engine must never assert it.) Gap/fit signals
 # like site-quality or SEO gaps say they NEED help, not that they're shopping today —
 # they don't count here.
-INTENT_SIGNALS = {SignalKind.ADS_ACTIVE, SignalKind.HIRING_MARKETING, SignalKind.NEW_LOCATION}
+# NB: HIRING_MARKETING is intentionally NOT an intent signal — strategy rejected it (a
+# firm hiring marketers is fixing it in-house = harder sell). The enum member survives
+# only for backward-compatible deserialization; it must never confer in-market.
+INTENT_SIGNALS = {SignalKind.ADS_ACTIVE, SignalKind.NEW_LOCATION}
 _INTENT_REASON = {
     SignalKind.ADS_ACTIVE: "actively running ads",
-    SignalKind.HIRING_MARKETING: "hiring for marketing",
     SignalKind.NEW_LOCATION: "new location / recently launched",
 }
 
