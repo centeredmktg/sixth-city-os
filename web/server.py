@@ -20,6 +20,7 @@ from sqlalchemy.orm import selectinload
 from engine.attribution import dashboard
 from engine.db import repo
 from engine.db.base import make_engine, create_all, make_session_factory
+from engine.db.auto_migrate import run_startup_migrations
 from engine.db.models import AccountRow
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
@@ -70,7 +71,8 @@ auth.setup_auth(app)
 
 # One engine/session-factory per process, built at import from DATABASE_URL.
 _engine = make_engine()
-create_all(_engine)
+create_all(_engine)                       # new tables
+run_startup_migrations(_engine)           # ADD COLUMN on existing tables (Postgres self-heal)
 _SessionLocal = make_session_factory(_engine)
 
 # Load the saved scoring rubric (if any) into the active config at boot, so scoring uses
