@@ -17,34 +17,23 @@ from __future__ import annotations
 
 from engine import geo
 from engine.models import Account, Score, SignalKind, Vertical
+from engine.scoring.config import ScoringConfig, get_active_config, DEFAULT_VERTICAL_FIT_BONUS
 
 
-# Vertical fit weights — from the full 2017–2026 Sales-Pipeline win analysis
-# (deal-terms repo: analysis/clay-tam-spec.md). The old code added a flat +12 for
-# ANY known vertical, scoring Real Estate (27% win) the same as Retail (6%). These
-# bonuses spread that out by how much better than the 19.3% baseline each vertical
-# historically closes. UNKNOWN stays neutral-positive: unlabeled accounts closed at
-# ~24% historically, so missing a tag is never a penalty.
-VERTICAL_FIT_BONUS = {
-    Vertical.INDUSTRIAL_MANUFACTURING: 16,  # ~25% win — the spine
-    Vertical.REAL_ESTATE:              16,  # ~27% win
-    Vertical.EDUCATION:                15,  # ~24% win
-    Vertical.PROFESSIONAL_B2B:         13,  # ~22% win (software/IT/consulting)
-    Vertical.HEALTHCARE:               10,  # ~17% win — high value, slower
-    Vertical.AUTOMOTIVE:                8,  # 14% overall, but auto×SEO ~30%
-    Vertical.LEGAL:                     8,  # ~14% — rare, but fast + high-value
-    Vertical.HOME_CONSTRUCTION:         7,  # ~14% (construction) — volume trap
-    Vertical.RETAIL_ECOMMERCE:          2,  # ~6% — proven friction
-    Vertical.UNKNOWN:                  10,  # neutral-positive; unlabeled closed ~24%
-}
+# Vertical fit weights now live as the DEFAULTS on ScoringConfig
+# (config.DEFAULT_VERTICAL_FIT_BONUS) so the team can tune them from the console;
+# scoring reads whatever the active/passed config carries. This enum-keyed alias is a
+# read-only convenience for callers/tests that want the default weights by Vertical.
+VERTICAL_FIT_BONUS = {v: DEFAULT_VERTICAL_FIT_BONUS[v.value] for v in Vertical}
 
 
 # --- Fit: does this account look like Sixth City's kind of client? -----------
-def _fit(account: Account) -> float:
+def _fit(account: Account, config: ScoringConfig | None = None) -> float:
     """0-100. Pre-enrichment fit: vertical match + locale. Real version adds
     employee count, revenue band, locale tightness."""
+    config = config or get_active_config()
     base = 55.0
-    base += VERTICAL_FIT_BONUS.get(account.vertical, 10)  # win-rate-weighted (see above)
+    base += config.vertical_fit_bonus.get(account.vertical.value, 10.0)  # win-rate-weighted
     if account.state in ("OH",):
         base += 10  # in the six-city footprint
     if account.linkedin_url:
@@ -91,46 +80,45 @@ def _timing(account: Account) -> float:
     return min(timing, 100.0)
 
 
-# --- Composite + band: Danny's call ------------------------------------------
-# TODO(Danny): this is the lever that decides what the closer works first.
-#   1. How should fit and timing trade off? (e.g. 0.5/0.5, or timing-heavy 0.3/0.7
-#      because a perfect-fit account that isn't in-market wastes the closer's day?)
-#   2. Where do the A/B/C/R cutoffs sit on the 0-100 composite?
-# Replace the two constants + the band ladder with your judgment. ~6 lines.
-FIT_WEIGHT = 0.4
-TIMING_WEIGHT = 0.6
+# --- Composite + band: now team-tunable via ScoringConfig --------------------
+# The fit/timing balance and the A/B/C/R cutoffs are the levers that decide what the
+# closer works first. They live on ScoringConfig (defaults = the historical constants)
+# and are adjustable from the console Scoring screen. score() reads the passed config,
+# or the active one (get_active_config()) when none is given.
 
 
-def _band(total: float) -> str:
-    if total >= 75:
+def _band(total: float, config: ScoringConfig | None = None) -> str:
+    config = config or get_active_config()
+    if total >= config.band_a:
         return "A"
-    if total >= 55:
+    if total >= config.band_b:
         return "B"
-    if total >= 35:
+    if total >= config.band_c:
         return "C"
     return "R"   # reject / nurture later
 
 
-def score(account: Account) -> Score:
-    fit = _fit(account)
+def score(account: Account, config: ScoringConfig | None = None) -> Score:
+    config = config or get_active_config()
+    fit = _fit(account, config)
     timing = _timing(account)
-    base = fit * FIT_WEIGHT + timing * TIMING_WEIGHT
+    base = fit * config.fit_weight + timing * config.timing_weight
 
     # Office-hub proximity boost: accounts near a Sixth City hub score higher
     # (local advantage = higher fit + close). A STAFFED hub (people, not just a
     # ranking address) lifts the ceiling further — see geo.proximity_weight.
-    prox = geo.proximity_weight(account)
+    prox = geo.proximity_weight(account, config)
     total = min(100.0, base * prox)
 
     prox_note = ""
     if prox != 1.0:
-        staffed = geo.nearest_staffed_hub(account)
+        staffed = geo.nearest_staffed_hub(account, config)
         tag = f" (staffed: {staffed.city})" if staffed else ""
         prox_note = f" × proximity {prox:.2f}{tag}"
     return Score(
         fit=round(fit, 1),
         timing=round(timing, 1),
         total=round(total, 1),
-        band=_band(total),
-        rationale=f"fit {fit:.0f} × {FIT_WEIGHT} + timing {timing:.0f} × {TIMING_WEIGHT}{prox_note}",
+        band=_band(total, config),
+        rationale=f"fit {fit:.0f} × {config.fit_weight} + timing {timing:.0f} × {config.timing_weight:.2f}{prox_note}",
     )

@@ -130,5 +130,38 @@ class TestRealHubs(unittest.TestCase):
                                    f"{hubs[i].city} and {hubs[j].city} circles overlap")
 
 
+class TestConfigurableGeo(unittest.TestCase):
+    """proximity_weight / nearest_staffed_hub honor a passed ScoringConfig's boosts and
+    radius, so the console Scoring screen actually changes geo behavior."""
+
+    def setUp(self):
+        self._saved = geo.OFFICE_HUBS
+        geo.OFFICE_HUBS = [geo.OfficeHub("Cleveland", 41.4993, -81.6944, staffed=True)]
+
+    def tearDown(self):
+        geo.OFFICE_HUBS = self._saved
+
+    def _acct(self, **kw) -> Account:
+        return Account(name="x", domain="x.example", vertical=Vertical.UNKNOWN, **kw)
+
+    def test_config_staffed_boost_overrides_default(self):
+        from engine.scoring.config import ScoringConfig
+        w = geo.proximity_weight(self._acct(city="Cleveland"),
+                                 ScoringConfig(staffed_proximity_boost=1.50))
+        self.assertAlmostEqual(w, 1.50)   # at the hub (0 mi) → full ceiling
+
+    def test_config_radius_shrinks_boost_zone(self):
+        from engine.scoring.config import ScoringConfig
+        near = self._acct(extra={"lat": "41.20", "lon": "-81.50"})   # ~25 mi
+        self.assertGreater(geo.proximity_weight(near, ScoringConfig(radius_miles=50.0)), 1.0)
+        self.assertEqual(geo.proximity_weight(near, ScoringConfig(radius_miles=10.0)), 1.0)
+
+    def test_config_radius_gates_nearest_staffed_hub(self):
+        from engine.scoring.config import ScoringConfig
+        near = self._acct(extra={"lat": "41.20", "lon": "-81.50"})   # ~25 mi
+        self.assertIsNotNone(geo.nearest_staffed_hub(near, ScoringConfig(radius_miles=50.0)))
+        self.assertIsNone(geo.nearest_staffed_hub(near, ScoringConfig(radius_miles=10.0)))
+
+
 if __name__ == "__main__":
     unittest.main()
