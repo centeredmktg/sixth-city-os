@@ -84,3 +84,12 @@ class SignalRow(Base):
     observed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
     account: Mapped["AccountRow"] = relationship(back_populates="signals")
+
+
+class SettingRow(Base):
+    """Generic single-value settings store (key -> JSON). Holds the team-tunable
+    'scoring_config' rubric; a JSON value means new levers need no migration."""
+    __tablename__ = "settings"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    value: Mapped[dict] = mapped_column(JSON, default=dict)
