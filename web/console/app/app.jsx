@@ -31,6 +31,7 @@ function Sidebar({ view, onNav, netNew }) {
     { id: "triage", label: "Triage Board", icon: P.Icons.Route, count: netNew },
     { id: "scoreboard", label: "Scoreboard", icon: P.Icons.Scale },
     { id: "accounts", label: "Accounts", icon: P.Icons.Building },
+    { id: "scoring", label: "Scoring", icon: P.Icons.Sliders },
   ];
   return (
     <aside className="pe-side">
@@ -99,8 +100,8 @@ function Topbar({ title, sub }) {
 }
 
 // Deep-linkable routes — each nav view has a persistent URL (bookmark/refresh/back work).
-const VIEW_PATH = { ingestion: "/", queue: "/queue", triage: "/triage", scoreboard: "/scoreboard", accounts: "/accounts" };
-const PATH_VIEW = { "/": "ingestion", "/ingestion": "ingestion", "/queue": "queue", "/triage": "triage", "/scoreboard": "scoreboard", "/accounts": "accounts" };
+const VIEW_PATH = { ingestion: "/", queue: "/queue", triage: "/triage", scoreboard: "/scoreboard", accounts: "/accounts", scoring: "/scoring" };
+const PATH_VIEW = { "/": "ingestion", "/ingestion": "ingestion", "/queue": "queue", "/triage": "triage", "/scoreboard": "scoreboard", "/accounts": "accounts", "/scoring": "scoring" };
 const viewFromPath = () => PATH_VIEW[window.location.pathname] || "ingestion";
 
 function App() {
@@ -154,6 +155,7 @@ function App() {
     triage: ["Triage Board", "Confirm or override routing — the human-in-the-loop gate"],
     accounts: ["Accounts", "The book — every scored account + its evidence trail"],
     scoreboard: ["Engine Impact", "What the engine is producing for your pipeline"],
+    scoring: ["Scoring", "Tune the rubric — how accounts rank, and what counts as perfect-fit"],
     ingestion: ["Ingestion Engine", "Where every account enters the pipeline"],
   };
   const [title, sub] = importing
@@ -176,6 +178,8 @@ function App() {
               ? <P.AccountsScreen />
             : view === "scoreboard"
               ? <P.Scoreboard />
+            : view === "scoring"
+              ? <P.ScoringScreen />
               : <P.IngestionEngine onSendToScoring={() => {}} onRunIngest={() => setMode("import")} />}
         </div>
       </div>

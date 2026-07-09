@@ -18,6 +18,7 @@ import math
 from dataclasses import dataclass
 
 from engine.models import Account
+from engine.scoring.config import ScoringConfig, get_active_config
 
 
 @dataclass(frozen=True)
@@ -98,29 +99,32 @@ def miles_to_nearest_hub(account: Account) -> float | None:
     return nh[1] if nh else None
 
 
-def nearest_staffed_hub(account: Account) -> OfficeHub | None:
-    """The STAFFED hub this account is within RADIUS_MILES of, else None. Gates the
-    in-person outreach offer (#4). Because hubs are >2*RADIUS apart, an in-radius
-    account maps to exactly one hub — so 'is the nearest hub staffed and in range?'
-    fully answers 'can we credibly offer to meet in person?'."""
+def nearest_staffed_hub(account: Account, config: "ScoringConfig | None" = None) -> OfficeHub | None:
+    """The STAFFED hub this account is within the (configurable) radius of, else None.
+    Gates the in-person outreach offer (#4). Because hubs are >2*radius apart, an
+    in-radius account maps to exactly one hub — so 'is the nearest hub staffed and in
+    range?' fully answers 'can we credibly offer to meet in person?'."""
+    radius = (config or get_active_config()).radius_miles
     nh = _nearest_hub(account)
     if nh is None:
         return None
     hub, miles = nh
-    return hub if (hub.staffed and miles < RADIUS_MILES) else None
+    return hub if (hub.staffed and miles < radius) else None
 
 
-def proximity_weight(account: Account) -> float:
-    """Score multiplier: 1.0 neutral, up to PROXIMITY_BOOST (or STAFFED_PROXIMITY_BOOST
-    when the nearest hub is staffed) for accounts within RADIUS_MILES of a hub. Linear
-    falloff from the hub out to the radius edge. Returns 1.0 when location can't be
-    determined — never penalizes on missing data."""
+def proximity_weight(account: Account, config: "ScoringConfig | None" = None) -> float:
+    """Score multiplier: 1.0 neutral, up to the (configurable) proximity boost — or the
+    higher staffed boost when the nearest hub is staffed — for accounts within the
+    configurable radius of a hub. Linear falloff from the hub out to the radius edge.
+    Returns 1.0 when location can't be determined — never penalizes on missing data."""
+    cfg = config or get_active_config()
+    radius = cfg.radius_miles
     nh = _nearest_hub(account)
     if nh is None:
         return 1.0
     hub, miles = nh
-    if miles >= RADIUS_MILES:
+    if miles >= radius:
         return 1.0
-    ceiling = STAFFED_PROXIMITY_BOOST if hub.staffed else PROXIMITY_BOOST
-    closeness = 1.0 - (miles / RADIUS_MILES)        # 1.0 at the hub, 0.0 at the edge
+    ceiling = cfg.staffed_proximity_boost if hub.staffed else cfg.proximity_boost
+    closeness = 1.0 - (miles / radius)              # 1.0 at the hub, 0.0 at the edge
     return 1.0 + (ceiling - 1.0) * closeness

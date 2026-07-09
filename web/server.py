@@ -9,11 +9,13 @@ from __future__ import annotations
 import csv as csvmod
 import io
 import os
+import threading
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sqlalchemy.orm import selectinload
 
 from engine.attribution import dashboard
 from engine.db import repo
@@ -24,9 +26,13 @@ from engine.jobs import find_accounts, score_accounts, route_accounts
 from engine.jobs import enrich as enrich_job
 from engine.jobs import enrich_places
 from engine.jobs import push_to_hubspot
+from engine.jobs.rescore import rescore_all
 from engine.modules import draft_cold_email
 from engine.models import Route, Stage
 from engine import routing
+from engine.scoring import abcr
+from engine.scoring.config import ScoringConfig, DEFAULT_CONFIG, set_active_config
+from engine.db import settings_repo
 from engine.sources.clay_payload import ClayPayloadSource, has_domain_column
 
 from web import auth
@@ -66,6 +72,14 @@ auth.setup_auth(app)
 _engine = make_engine()
 create_all(_engine)
 _SessionLocal = make_session_factory(_engine)
+
+# Load the saved scoring rubric (if any) into the active config at boot, so scoring uses
+# the team's tuned levers. Empty/new DB or any transient error → defaults stay active.
+try:
+    with _SessionLocal() as _boot_session:
+        set_active_config(settings_repo.load_scoring_config(_boot_session))
+except Exception as _e:   # never block startup on config load
+    print(f"  [scoring-config] boot load skipped: {type(_e).__name__}")
 
 WEB_DIR = os.path.dirname(__file__)
 
@@ -319,12 +333,75 @@ def contacts(domain: str, session=Depends(db_session)):
             "contacts": [_contact_dict(c) for c in repo.get_contacts(session, domain)]}
 
 
+# --- Scoring rubric: team-adjustable levers (console "Scoring" screen) --------
+# Serialize rubric writes: a sync def endpoint runs in a threadpool, so two concurrent
+# PUTs could interleave save/set_active/rescore and leave the DB scored with a different
+# config than the one marked active. This lock makes the whole write atomic.
+_scoring_write_lock = threading.Lock()
+
+
+def _band_distribution(session, config: ScoringConfig | None = None) -> dict:
+    """A/B/C/R counts across all accounts. With a config, re-score in memory (preview,
+    no writes); without one, read the stored bands."""
+    counts = {"A": 0, "B": 0, "C": 0, "R": 0}
+    if config is None:
+        for (band,) in session.query(AccountRow.band).all():
+            counts[band] = counts.get(band, 0) + 1
+    else:
+        # selectinload avoids an N+1 on signals — this runs on every debounced preview.
+        for row in session.query(AccountRow).options(selectinload(AccountRow.signals)).all():
+            b = abcr.score(repo._account_from_row(row), config).band
+            counts[b] = counts.get(b, 0) + 1
+    return counts
+
+
+def _config_from_body(body: dict) -> ScoringConfig:
+    """Parse + validate a config payload → ScoringConfig, or raise 400 with the reasons."""
+    try:
+        cfg = ScoringConfig.from_dict(body)
+    except (TypeError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=[f"Malformed scoring config: {e}"])
+    errs = cfg.validate()
+    if errs:
+        raise HTTPException(status_code=400, detail=errs)
+    return cfg
+
+
+@app.get("/api/scoring-config")
+def get_scoring_config(session=Depends(db_session)):
+    """The saved rubric plus the hardcoded defaults (for the UI's Reset action)."""
+    return {"config": settings_repo.load_scoring_config(session).to_dict(),
+            "defaults": DEFAULT_CONFIG.to_dict()}
+
+
+@app.put("/api/scoring-config")
+def put_scoring_config(body: dict, session=Depends(db_session)):
+    """Save a new rubric → make it active → re-score every saved account so the queue
+    re-ranks. 400 (no side effects) if the config is incoherent."""
+    cfg = _config_from_body(body)                 # validate before taking the lock
+    with _scoring_write_lock:                      # atomic: save + activate + rescore
+        settings_repo.save_scoring_config(session, cfg)
+        set_active_config(cfg)
+        n = rescore_all(session, cfg)
+        bands = _band_distribution(session)
+    return {"saved": True, "rescored": n, "bands": bands}
+
+
+@app.post("/api/scoring-config/preview")
+def preview_scoring_config(body: dict, session=Depends(db_session)):
+    """Band distribution if this candidate rubric were applied — in-memory, persists
+    nothing. Powers the live preview as the team drags the sliders."""
+    cfg = _config_from_body(body)
+    return {"bands": _band_distribution(session, cfg),
+            "total": session.query(AccountRow).count()}
+
+
 # SPA deep-link routes: each nav item has a real URL (bookmarkable, refresh-safe,
 # back/forward works). The console is a client-routed single page, so a hard hit on
 # any of these must serve index.html and let the app render the right view from the
 # path. Registered BEFORE the "/" StaticFiles mount so they win over its catch-all.
 _CONSOLE_INDEX = os.path.join(WEB_DIR, "console", "index.html")
-for _spa_path in ("/ingestion", "/queue", "/triage", "/scoreboard", "/accounts"):
+for _spa_path in ("/ingestion", "/queue", "/triage", "/scoreboard", "/accounts", "/scoring"):
     app.add_api_route(_spa_path, lambda: FileResponse(_CONSOLE_INDEX),
                       methods=["GET"], include_in_schema=False)
 
