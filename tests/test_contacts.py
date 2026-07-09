@@ -22,3 +22,15 @@ def test_pursue_stores_lists_and_flags(client, monkeypatch):
 
     cands = {c["domain"]: c for c in client.get("/api/candidates").json()["candidates"]}
     assert cands["buckeye.example"]["pursued"] is True
+
+
+def test_contact_hubspot_id_roundtrips(session):
+    # Contact is now first-class with a HubSpot id (nullable) so the person syncs to CRM.
+    from engine.db import repo
+    from engine.models import Account, Contact, Vertical
+    repo.upsert_accounts(session, [Account(name="Acme", domain="acme.com", vertical=Vertical.UNKNOWN)])
+    repo.store_contacts(session, "acme.com", [
+        Contact(name="Jane", company_domain="acme.com", email="jane@acme.com", hubspot_id="55"),
+    ])
+    got = repo.get_contacts(session, "acme.com")
+    assert len(got) == 1 and got[0].hubspot_id == "55"

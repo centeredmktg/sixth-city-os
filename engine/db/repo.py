@@ -126,7 +126,8 @@ def store_contacts(session: Session, domain: str, contacts: list[Contact]) -> in
         return 0
     row.contacts = [
         ContactRow(name=c.name, title=c.title, email=c.email,
-                   linkedin_url=c.linkedin_url, seniority=c.seniority, source=c.source)
+                   linkedin_url=c.linkedin_url, seniority=c.seniority, source=c.source,
+                   hubspot_id=c.hubspot_id or None)
         for c in contacts
     ]
     row.pursued = True
@@ -141,6 +142,7 @@ def get_contacts(session: Session, domain: str) -> list[Contact]:
         return []
     return [
         Contact(name=r.name, company_domain=domain, title=r.title, email=r.email,
-                linkedin_url=r.linkedin_url, seniority=r.seniority, source=r.source)
+                linkedin_url=r.linkedin_url, seniority=r.seniority, source=r.source,
+                hubspot_id=r.hubspot_id or "")
         for r in row.contacts
     ]

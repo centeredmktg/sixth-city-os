@@ -39,7 +39,7 @@ def test_live_falls_back_to_template_when_disabled():
 def test_live_maps_anthropic_payload_to_outreach(monkeypatch):
     monkeypatch.setattr(draft_cold_email, "_ai_enabled", lambda: True)
     monkeypatch.setattr(draft_cold_email, "_call_anthropic",
-                        lambda account, strongest, reason: {"subject": "S", "body": "B"})
+                        lambda account, strongest, reason, contact=None: {"subject": "S", "body": "B"})
     o = draft_cold_email.draft(_account(), live=True)
     assert o.subject == "S" and o.body == "B"
     assert o.reason_signal == SignalKind.SITE_QUALITY   # signal still attributed
@@ -50,7 +50,7 @@ def test_live_falls_back_to_template_on_api_failure(monkeypatch):
     # fall back to the template, never propagate the failure.
     monkeypatch.setattr(draft_cold_email, "_ai_enabled", lambda: True)
     monkeypatch.setattr(draft_cold_email, "_call_anthropic",
-                        lambda account, strongest, reason: None)
+                        lambda account, strongest, reason, contact=None: None)
     o = draft_cold_email.draft(_account(), live=True)
     assert "digital footprint" in o.body
 
@@ -118,3 +118,23 @@ def test_user_message_injects_hook_facts():
 def test_user_message_omits_facts_when_no_hooks_fire():
     msg = draft_cold_email._user_message(_account(), "reason here")
     assert "Additional true context" not in msg
+
+
+# --- contact-aware drafting (Company → Contact → Message) ---------------------
+def test_draft_greets_contact_by_first_name():
+    from engine.models import Contact
+    c = Contact(name="Jane Doe", company_domain="acmetool.com", title="CMO")
+    o = draft_cold_email.draft(_account(), contact=c)
+    assert o.body.startswith("Hi Jane —")
+
+
+def test_draft_without_contact_unchanged():
+    o = draft_cold_email.draft(_account())
+    assert o.body.startswith("Hi —")          # regression: no contact = generic greeting
+
+
+def test_user_message_includes_contact():
+    from engine.models import Contact
+    c = Contact(name="Jane Doe", company_domain="acmetool.com", title="CMO")
+    msg = draft_cold_email._user_message(_account(), "reason here", c)
+    assert "Jane Doe" in msg and "CMO" in msg
