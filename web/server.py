@@ -10,8 +10,9 @@ import csv as csvmod
 import io
 import os
 import threading
+from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -23,6 +24,8 @@ from engine.db.base import make_engine, create_all, make_session_factory
 from engine.db.auto_migrate import run_startup_migrations
 from engine.db.models import AccountRow
 from engine.db import messages_repo
+from engine.gmail import send as gmail_send
+from engine.gmail import tokens as gmail_tokens
 from engine.models import Message, MessageStatus
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
@@ -397,6 +400,33 @@ def discard_message(message_id: int, session=Depends(db_session)):
     if m is None:
         raise HTTPException(status_code=404, detail="message not found")
     return {"discarded": True, "id": message_id}
+
+
+def _rep_email(request: Request) -> str:
+    """The logged-in rep's email, or '' when the auth gate is open (local/tests)."""
+    try:
+        return request.session.get("user", "") or ""
+    except Exception:      # SessionMiddleware absent (auth disabled) → no user
+        return ""
+
+
+@app.post("/api/messages/{message_id}/send")
+def send_message(message_id: int, request: Request, session=Depends(db_session)):
+    """Send the message via the rep's own Gmail (auto-BCC'ing HubSpot to log it). Degrades
+    to {sent:false, reason:'connect_gmail'} — never 500s — until the gmail.send scope is
+    live and the rep has connected; the draft is left untouched so it can be sent later."""
+    m = messages_repo.get_message(session, message_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    rep = _rep_email(request)
+    result = gmail_send.send(session, rep, m.contact_email, m.final_subject, m.final_body)
+    if result is None:
+        reason = "connect_gmail" if not gmail_tokens.is_connected(session, rep) else "send_failed"
+        return {"sent": False, "reason": reason}
+    messages_repo.set_status(session, message_id, MessageStatus.SENT,
+                             gmail_message_id=result["id"], gmail_thread_id=result["threadId"],
+                             sent_at=datetime.now(timezone.utc), sent_by=rep)
+    return {"sent": True, "id": message_id, "gmail_message_id": result["id"]}
 
 
 # --- Scoring rubric: team-adjustable levers (console "Scoring" screen) --------
