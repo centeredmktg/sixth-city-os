@@ -79,6 +79,7 @@ _engine = make_engine()
 create_all(_engine)                       # new tables
 run_startup_migrations(_engine)           # ADD COLUMN on existing tables (Postgres self-heal)
 _SessionLocal = make_session_factory(_engine)
+auth.set_session_factory(_SessionLocal)   # so the login callback can persist Gmail tokens
 
 # Load the saved scoring rubric (if any) into the active config at boot, so scoring uses
 # the team's tuned levers. Empty/new DB or any transient error → defaults stay active.
