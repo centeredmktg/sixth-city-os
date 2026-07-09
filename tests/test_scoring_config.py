@@ -40,6 +40,16 @@ def test_rejects_nonpositive_radius():
     assert ScoringConfig(radius_miles=0.0).validate()
 
 
+def test_rejects_non_finite_values():
+    # A raw API payload can carry NaN/Infinity (JSON literals); NaN would slip past the
+    # ordered-comparison checks (every comparison is False), so guard it explicitly.
+    assert ScoringConfig(band_a=float("nan")).validate()
+    assert ScoringConfig(proximity_boost=float("inf")).validate()
+    bad = dict(ScoringConfig().vertical_fit_bonus)
+    bad[Vertical.LEGAL.value] = float("nan")
+    assert ScoringConfig(vertical_fit_bonus=bad).validate()
+
+
 def test_rejects_wrong_vertical_key_set():
     bad = dict(ScoringConfig().vertical_fit_bonus)
     del bad[Vertical.LEGAL.value]

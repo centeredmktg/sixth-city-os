@@ -11,6 +11,7 @@ and the console UI both defer to it.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 
 from engine.models import Vertical
@@ -53,6 +54,13 @@ class ScoringConfig:
     def validate(self) -> list[str]:
         """Human-readable errors; empty list = a coherent rubric."""
         errs: list[str] = []
+        # Guard non-finite FIRST: a raw API payload can carry NaN/Infinity, and NaN slips
+        # past every ordered comparison below (all evaluate False), so reject it outright.
+        scalars = [self.fit_weight, self.band_a, self.band_b, self.band_c,
+                   self.proximity_boost, self.staffed_proximity_boost, self.radius_miles]
+        vbonus = list(self.vertical_fit_bonus.values()) if isinstance(self.vertical_fit_bonus, dict) else []
+        if any(not math.isfinite(x) for x in scalars + vbonus):
+            return ["All scoring values must be finite numbers."]
         if not (0.0 <= self.fit_weight <= 1.0):
             errs.append("Fit/Timing balance must be between 0 and 1.")
         if not (100.0 >= self.band_a > self.band_b > self.band_c >= 0.0):

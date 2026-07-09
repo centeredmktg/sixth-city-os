@@ -9,11 +9,13 @@ from __future__ import annotations
 import csv as csvmod
 import io
 import os
+import threading
 
 from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sqlalchemy.orm import selectinload
 
 from engine.attribution import dashboard
 from engine.db import repo
@@ -332,6 +334,12 @@ def contacts(domain: str, session=Depends(db_session)):
 
 
 # --- Scoring rubric: team-adjustable levers (console "Scoring" screen) --------
+# Serialize rubric writes: a sync def endpoint runs in a threadpool, so two concurrent
+# PUTs could interleave save/set_active/rescore and leave the DB scored with a different
+# config than the one marked active. This lock makes the whole write atomic.
+_scoring_write_lock = threading.Lock()
+
+
 def _band_distribution(session, config: ScoringConfig | None = None) -> dict:
     """A/B/C/R counts across all accounts. With a config, re-score in memory (preview,
     no writes); without one, read the stored bands."""
@@ -340,7 +348,8 @@ def _band_distribution(session, config: ScoringConfig | None = None) -> dict:
         for (band,) in session.query(AccountRow.band).all():
             counts[band] = counts.get(band, 0) + 1
     else:
-        for row in session.query(AccountRow).all():
+        # selectinload avoids an N+1 on signals — this runs on every debounced preview.
+        for row in session.query(AccountRow).options(selectinload(AccountRow.signals)).all():
             b = abcr.score(repo._account_from_row(row), config).band
             counts[b] = counts.get(b, 0) + 1
     return counts
@@ -369,11 +378,13 @@ def get_scoring_config(session=Depends(db_session)):
 def put_scoring_config(body: dict, session=Depends(db_session)):
     """Save a new rubric → make it active → re-score every saved account so the queue
     re-ranks. 400 (no side effects) if the config is incoherent."""
-    cfg = _config_from_body(body)
-    settings_repo.save_scoring_config(session, cfg)
-    set_active_config(cfg)
-    n = rescore_all(session, cfg)
-    return {"saved": True, "rescored": n, "bands": _band_distribution(session)}
+    cfg = _config_from_body(body)                 # validate before taking the lock
+    with _scoring_write_lock:                      # atomic: save + activate + rescore
+        settings_repo.save_scoring_config(session, cfg)
+        set_active_config(cfg)
+        n = rescore_all(session, cfg)
+        bands = _band_distribution(session)
+    return {"saved": True, "rescored": n, "bands": bands}
 
 
 @app.post("/api/scoring-config/preview")
