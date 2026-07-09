@@ -286,3 +286,40 @@ def test_preview_persists_nothing(client, session):
     assert r.status_code == 200
     assert r.json()["total"] == 1 and set(r.json()["bands"]) == {"A", "B", "C", "R"}
     assert settings_repo.load_scoring_config(session) == before   # unchanged
+
+
+# --- Message compose/send queue endpoints ------------------------------------
+def _seed_company_with_contact(session):
+    from engine.db import repo
+    from engine.models import Account, Contact, Vertical
+    repo.upsert_accounts(session, [Account(name="Acme", domain="acme.com",
+                                           vertical=Vertical.INDUSTRIAL_MANUFACTURING, state="OH")])
+    repo.store_contacts(session, "acme.com", [
+        Contact(name="Jane Doe", company_domain="acme.com", title="CMO", email="jane@acme.com")])
+
+
+def test_message_compose_list_edit_discard(client, session):
+    _seed_company_with_contact(session)
+    m = client.post("/api/messages", json={"domain": "acme.com", "contact_email": "jane@acme.com"}).json()
+    assert m["status"] == "draft" and m["contact_email"] == "jane@acme.com"
+    assert m["body"].startswith("Hi Jane —")                     # contact-aware compose
+    mid = m["id"]
+    assert any(x["id"] == mid for x in client.get("/api/messages").json()["messages"])
+    e = client.patch(f"/api/messages/{mid}", json={"subject": "Edited", "body": "Edited body"}).json()
+    assert e["subject"] == "Edited" and e["edited"] is True
+    assert e["original_body"].startswith("Hi Jane —")            # original preserved
+    client.post(f"/api/messages/{mid}/discard")
+    assert not any(x["id"] == mid for x in client.get("/api/messages").json()["messages"])
+
+
+def test_compose_unknown_company_404(client):
+    r = client.post("/api/messages", json={"domain": "nope.com", "contact_email": "x@nope.com"})
+    assert r.status_code == 404
+
+
+def test_compose_contact_not_found_404(client, session):
+    from engine.db import repo
+    from engine.models import Account, Vertical
+    repo.upsert_accounts(session, [Account(name="Acme", domain="acme.com", vertical=Vertical.UNKNOWN)])
+    r = client.post("/api/messages", json={"domain": "acme.com", "contact_email": "ghost@acme.com"})
+    assert r.status_code == 404

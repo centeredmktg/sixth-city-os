@@ -22,6 +22,8 @@ from engine.db import repo
 from engine.db.base import make_engine, create_all, make_session_factory
 from engine.db.auto_migrate import run_startup_migrations
 from engine.db.models import AccountRow
+from engine.db import messages_repo
+from engine.models import Message, MessageStatus
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
 from engine.jobs import enrich as enrich_job
@@ -333,6 +335,68 @@ def contacts(domain: str, session=Depends(db_session)):
     """The decision-makers sourced for a pursued company (empty until pursued)."""
     return {"domain": domain,
             "contacts": [_contact_dict(c) for c in repo.get_contacts(session, domain)]}
+
+
+# --- Messages: the compose/send queue (Company → Contact → Message) -----------
+def _message_dict(m: Message) -> dict:
+    return {
+        "id": m.id, "contact_email": m.contact_email, "company_domain": m.company_domain,
+        "reason_signal": m.reason_signal.value if m.reason_signal else None,
+        "subject": m.final_subject, "body": m.final_body,
+        "original_subject": m.subject, "original_body": m.body,
+        "edited": bool(m.edited_subject or m.edited_body),
+        "status": m.status.value, "sent_at": m.sent_at.isoformat() if m.sent_at else None,
+        "sent_by": m.sent_by,
+    }
+
+
+class ComposeRequest(BaseModel):
+    domain: str
+    contact_email: str
+
+
+@app.get("/api/messages")
+def list_messages(session=Depends(db_session)):
+    """The open compose/send queue — drafts + approved, newest first."""
+    return {"messages": [_message_dict(m) for m in messages_repo.list_queue(session)]}
+
+
+@app.post("/api/messages")
+def compose_message(req: ComposeRequest, session=Depends(db_session)):
+    """Compose a draft FOR a specific contact at a company: pull the account + the
+    contact, run the contact-aware drafter (template unless push-gated), persist a draft."""
+    acct_row = session.get(AccountRow, req.domain)
+    if acct_row is None:
+        raise HTTPException(status_code=404, detail="unknown company")
+    account = repo._account_from_row(acct_row)
+    contact = next((c for c in repo.get_contacts(session, req.domain)
+                    if c.email == req.contact_email), None)
+    if contact is None:
+        raise HTTPException(status_code=404, detail="contact not found for this company")
+    o = draft_cold_email.draft(account, contact=contact)
+    msg = messages_repo.create_message(session, Message(
+        contact_email=req.contact_email, company_domain=req.domain,
+        subject=o.subject, body=o.body, reason_signal=o.reason_signal,
+    ))
+    return _message_dict(msg)
+
+
+@app.patch("/api/messages/{message_id}")
+def edit_message(message_id: int, body: dict, session=Depends(db_session)):
+    """Save the rep's edit (into edited_*, original preserved)."""
+    m = messages_repo.update_draft(session, message_id,
+                                   str(body.get("subject", "")), str(body.get("body", "")))
+    if m is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    return _message_dict(m)
+
+
+@app.post("/api/messages/{message_id}/discard")
+def discard_message(message_id: int, session=Depends(db_session)):
+    m = messages_repo.set_status(session, message_id, MessageStatus.DISCARDED)
+    if m is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    return {"discarded": True, "id": message_id}
 
 
 # --- Scoring rubric: team-adjustable levers (console "Scoring" screen) --------
