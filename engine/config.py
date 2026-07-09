@@ -36,6 +36,15 @@ class Config:
     pagespeed_key: str = os.getenv("PAGESPEED_KEY", "")
     builtwith_key: str = os.getenv("BUILTWITH_KEY", "")
 
+    # Native Gmail send (compose/send surface). BCC = HubSpot "log to CRM" address so a
+    # send auto-logs the engagement. token_enc_key (Fernet) encrypts stored refresh
+    # tokens at rest. gmail_send_enabled GATES the gmail.send OAuth scope + send path —
+    # kept OFF until the scope is registered in GCP, so login never breaks on an
+    # unregistered scope.
+    hubspot_bcc_address: str = os.getenv("HUBSPOT_BCC_ADDRESS", "")
+    token_enc_key: str = os.getenv("TOKEN_ENC_KEY", "")
+    gmail_send_enabled: bool = os.getenv("GMAIL_SEND_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
     # Targeting defaults (Sixth City = NE Ohio; widen, don't narrow — CLAUDE.md)
     target_states: tuple[str, ...] = ("OH",)
 
