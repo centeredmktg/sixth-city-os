@@ -19,3 +19,29 @@ def test_rejects_outsiders_and_junk():
     assert is_allowed("") is False
     assert is_allowed("notanemail") is False
     assert is_allowed(None) is False
+
+
+# --- gmail.send scope gating + token capture (native send) -------------------
+def test_google_scope_excludes_gmail_by_default(monkeypatch):
+    monkeypatch.delenv("GMAIL_SEND_ENABLED", raising=False)
+    from web import auth
+    assert "gmail.send" not in auth._google_scope()
+
+
+def test_google_scope_includes_gmail_when_enabled(monkeypatch):
+    monkeypatch.setenv("GMAIL_SEND_ENABLED", "1")
+    from web import auth
+    assert "gmail.send" in auth._google_scope()
+
+
+def test_store_gmail_refresh_noop_when_disabled(monkeypatch):
+    monkeypatch.delenv("GMAIL_SEND_ENABLED", raising=False)
+    from web import auth
+    assert auth._store_gmail_refresh("rep@sixthcity.com", {"refresh_token": "rt"}) is False
+
+
+def test_store_gmail_refresh_noop_without_token(monkeypatch):
+    monkeypatch.setenv("GMAIL_SEND_ENABLED", "1")
+    from web import auth
+    auth.set_session_factory(None)   # enabled, but nothing to store / no factory
+    assert auth._store_gmail_refresh("rep@sixthcity.com", {}) is False

@@ -39,6 +39,52 @@ SESSION_SECRET = os.getenv("SESSION_SECRET", "")
 
 AUTH_ENABLED = bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and SESSION_SECRET)
 
+_GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
+
+# The app's session factory, injected by server.py after the DB is built, so the login
+# callback can persist a rep's Gmail refresh token. None until injected (e.g. in tests).
+_session_factory = None
+
+
+def set_session_factory(factory) -> None:
+    global _session_factory
+    _session_factory = factory
+
+
+def _gmail_scope_enabled() -> bool:
+    """Whether to request the gmail.send scope. GATED so login never breaks on an
+    unregistered scope — stays off until GMAIL_SEND_ENABLED is set (after the GCP step)."""
+    return os.getenv("GMAIL_SEND_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
+
+def _google_scope() -> str:
+    """openid/email/profile, plus gmail.send only when send is enabled."""
+    scope = "openid email profile"
+    if _gmail_scope_enabled():
+        scope += " " + _GMAIL_SEND_SCOPE
+    return scope
+
+
+def _store_gmail_refresh(email: str, token: dict) -> bool:
+    """After login, persist the rep's Gmail refresh token (encrypted) when send is enabled
+    and Google returned one. No-op (False) otherwise. Never raises — a storage hiccup must
+    not break the login."""
+    if not _gmail_scope_enabled() or not _session_factory:
+        return False
+    refresh = (token or {}).get("refresh_token")
+    if not refresh:
+        return False
+    try:
+        from engine.gmail import tokens as gtokens
+        s = _session_factory()
+        try:
+            return gtokens.store_refresh_token(s, email, refresh)
+        finally:
+            s.close()
+    except Exception as e:
+        print(f"[auth] gmail token store skipped: {type(e).__name__}")
+        return False
+
 # Direct-path admin backfill — a username/password login for when no Google account
 # exists yet. Reachable only by navigating straight to /auth/admin (NOT linked from the
 # Google sign-in page). Active only when both vars are set; bypasses the email allowlist.
@@ -126,7 +172,7 @@ def setup_auth(app: FastAPI) -> bool:
         name="google",
         server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
         client_id=GOOGLE_CLIENT_ID, client_secret=GOOGLE_CLIENT_SECRET,
-        client_kwargs={"scope": "openid email profile"},
+        client_kwargs={"scope": _google_scope()},
     )
 
     async def require_login(request: Request, call_next):
@@ -151,7 +197,10 @@ def setup_auth(app: FastAPI) -> bool:
 
     @app.get("/auth/google", include_in_schema=False)
     async def google(request: Request):
-        return await oauth.google.authorize_redirect(request, _callback_uri(request))
+        # access_type=offline + prompt=consent make Google return a refresh_token (needed
+        # to send later). Only when send is enabled — a normal login stays minimal.
+        extra = {"access_type": "offline", "prompt": "consent"} if _gmail_scope_enabled() else {}
+        return await oauth.google.authorize_redirect(request, _callback_uri(request), **extra)
 
     @app.get("/auth/callback", name="callback", include_in_schema=False)
     async def callback(request: Request):
@@ -166,6 +215,7 @@ def setup_auth(app: FastAPI) -> bool:
             request.session.clear()
             return HTMLResponse(_DENIED_HTML.format(email=email or "that account"), status_code=403)
         request.session["user"] = email
+        _store_gmail_refresh(email, token)      # persist Gmail token when send is enabled
         return RedirectResponse("/")
 
     @app.get("/auth/logout", include_in_schema=False)

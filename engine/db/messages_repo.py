@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from engine.db.models import MessageRow
@@ -73,6 +74,20 @@ def update_draft(session: Session, message_id: int, subject: str, body: str) -> 
     row.edited_subject, row.edited_body = subject, body
     session.commit()
     return _from_row(row)
+
+
+def mark_sending(session: Session, message_id: int) -> bool:
+    """Atomically claim a message for sending (draft/approved → sending) in ONE SQL
+    UPDATE. Returns whether THIS caller won the row: a duplicate/concurrent send (double
+    click, retry, two requests) finds the status already moved and gets False, so only one
+    real email goes out."""
+    res = session.execute(
+        update(MessageRow)
+        .where(MessageRow.id == message_id,
+               MessageRow.status.in_([MessageStatus.DRAFT.value, MessageStatus.APPROVED.value]))
+        .values(status=MessageStatus.SENDING.value))
+    session.commit()
+    return bool(res.rowcount)
 
 
 def set_status(session: Session, message_id: int, status: MessageStatus, **send_meta) -> Message | None:

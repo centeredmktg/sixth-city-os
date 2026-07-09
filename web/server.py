@@ -10,8 +10,9 @@ import csv as csvmod
 import io
 import os
 import threading
+from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, File, HTTPException, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -22,6 +23,10 @@ from engine.db import repo
 from engine.db.base import make_engine, create_all, make_session_factory
 from engine.db.auto_migrate import run_startup_migrations
 from engine.db.models import AccountRow
+from engine.db import messages_repo
+from engine.gmail import send as gmail_send
+from engine.gmail import tokens as gmail_tokens
+from engine.models import Message, MessageStatus
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
 from engine.jobs import enrich as enrich_job
@@ -74,6 +79,7 @@ _engine = make_engine()
 create_all(_engine)                       # new tables
 run_startup_migrations(_engine)           # ADD COLUMN on existing tables (Postgres self-heal)
 _SessionLocal = make_session_factory(_engine)
+auth.set_session_factory(_SessionLocal)   # so the login callback can persist Gmail tokens
 
 # Load the saved scoring rubric (if any) into the active config at boot, so scoring uses
 # the team's tuned levers. Empty/new DB or any transient error → defaults stay active.
@@ -333,6 +339,102 @@ def contacts(domain: str, session=Depends(db_session)):
     """The decision-makers sourced for a pursued company (empty until pursued)."""
     return {"domain": domain,
             "contacts": [_contact_dict(c) for c in repo.get_contacts(session, domain)]}
+
+
+# --- Messages: the compose/send queue (Company → Contact → Message) -----------
+def _message_dict(m: Message) -> dict:
+    return {
+        "id": m.id, "contact_email": m.contact_email, "company_domain": m.company_domain,
+        "reason_signal": m.reason_signal.value if m.reason_signal else None,
+        "subject": m.final_subject, "body": m.final_body,
+        "original_subject": m.subject, "original_body": m.body,
+        "edited": bool(m.edited_subject or m.edited_body),
+        "status": m.status.value, "sent_at": m.sent_at.isoformat() if m.sent_at else None,
+        "sent_by": m.sent_by,
+    }
+
+
+class ComposeRequest(BaseModel):
+    domain: str
+    contact_email: str
+
+
+@app.get("/api/messages")
+def list_messages(session=Depends(db_session)):
+    """The open compose/send queue — drafts + approved, newest first."""
+    return {"messages": [_message_dict(m) for m in messages_repo.list_queue(session)]}
+
+
+@app.post("/api/messages")
+def compose_message(req: ComposeRequest, session=Depends(db_session)):
+    """Compose a draft FOR a specific contact at a company: pull the account + the
+    contact, run the contact-aware drafter (template unless push-gated), persist a draft."""
+    acct_row = session.get(AccountRow, req.domain)
+    if acct_row is None:
+        raise HTTPException(status_code=404, detail="unknown company")
+    account = repo._account_from_row(acct_row)
+    contact = next((c for c in repo.get_contacts(session, req.domain)
+                    if c.email == req.contact_email), None)
+    if contact is None:
+        raise HTTPException(status_code=404, detail="contact not found for this company")
+    o = draft_cold_email.draft(account, contact=contact)
+    msg = messages_repo.create_message(session, Message(
+        contact_email=req.contact_email, company_domain=req.domain,
+        subject=o.subject, body=o.body, reason_signal=o.reason_signal,
+    ))
+    return _message_dict(msg)
+
+
+@app.patch("/api/messages/{message_id}")
+def edit_message(message_id: int, body: dict, session=Depends(db_session)):
+    """Save the rep's edit (into edited_*, original preserved)."""
+    m = messages_repo.update_draft(session, message_id,
+                                   str(body.get("subject", "")), str(body.get("body", "")))
+    if m is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    return _message_dict(m)
+
+
+@app.post("/api/messages/{message_id}/discard")
+def discard_message(message_id: int, session=Depends(db_session)):
+    m = messages_repo.set_status(session, message_id, MessageStatus.DISCARDED)
+    if m is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    return {"discarded": True, "id": message_id}
+
+
+def _rep_email(request: Request) -> str:
+    """The logged-in rep's email, or '' when the auth gate is open (local/tests)."""
+    try:
+        return request.session.get("user", "") or ""
+    except Exception:      # SessionMiddleware absent (auth disabled) → no user
+        return ""
+
+
+@app.post("/api/messages/{message_id}/send")
+def send_message(message_id: int, request: Request, session=Depends(db_session)):
+    """Send the message via the rep's own Gmail (auto-BCC'ing HubSpot to log it). Degrades
+    to {sent:false, reason:'connect_gmail'} — never 500s — until the gmail.send scope is
+    live and the rep has connected; the draft is left untouched so it can be sent later."""
+    m = messages_repo.get_message(session, message_id)
+    if m is None:
+        raise HTTPException(status_code=404, detail="message not found")
+    # Atomic claim: only the caller that flips draft/approved → sending may send. A
+    # duplicate/concurrent click loses the race and returns the current state, never a
+    # second email.
+    if not messages_repo.mark_sending(session, message_id):
+        cur = messages_repo.get_message(session, message_id)
+        return {"sent": cur.status == MessageStatus.SENT, "reason": f"already_{cur.status.value}"}
+    rep = _rep_email(request)
+    result = gmail_send.send(session, rep, m.contact_email, m.final_subject, m.final_body)
+    if result is None:
+        messages_repo.set_status(session, message_id, MessageStatus.DRAFT)   # revert → retryable, back in queue
+        reason = "connect_gmail" if not gmail_tokens.is_connected(session, rep) else "send_failed"
+        return {"sent": False, "reason": reason}
+    messages_repo.set_status(session, message_id, MessageStatus.SENT,
+                             gmail_message_id=result["id"], gmail_thread_id=result["threadId"],
+                             sent_at=datetime.now(timezone.utc), sent_by=rep)
+    return {"sent": True, "id": message_id, "gmail_message_id": result["id"]}
 
 
 # --- Scoring rubric: team-adjustable levers (console "Scoring" screen) --------
