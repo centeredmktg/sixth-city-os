@@ -221,6 +221,47 @@ class Outreach:
     reason_signal: Optional[SignalKind] = None
 
 
+class MessageStatus(str, Enum):
+    """A first-class message's lifecycle in the compose/send queue."""
+    DRAFT = "draft"            # composed, awaiting the rep
+    APPROVED = "approved"      # rep approved, queued to send
+    SENDING = "sending"        # send in flight
+    SENT = "sent"              # delivered via the rep's Gmail
+    FAILED = "failed"          # send attempted, errored
+    DISCARDED = "discarded"    # rep dismissed it
+
+
+@dataclass
+class Message:
+    """A first-class outreach message: the draft composed FOR a specific contact at a
+    specific company, opening on that company's strongest signal. Hangs off the Contact
+    (the person you actually send to), the third first-class object after Company/Contact.
+    The AI/template original is preserved in subject/body; the rep's edit lives in
+    edited_* — final_subject/body pick the edit when present."""
+    contact_email: str        # who it goes to (identity with company_domain)
+    company_domain: str
+    subject: str
+    body: str
+    reason_signal: Optional[SignalKind] = None
+    edited_subject: str = ""
+    edited_body: str = ""
+    status: MessageStatus = MessageStatus.DRAFT
+    gmail_message_id: str = ""
+    gmail_thread_id: str = ""
+    sent_at: Optional[datetime] = None
+    sent_by: str = ""          # the rep's email that sent it
+    id: Optional[int] = None
+    created_at: Optional[datetime] = None
+
+    @property
+    def final_subject(self) -> str:
+        return self.edited_subject or self.subject
+
+    @property
+    def final_body(self) -> str:
+        return self.edited_body or self.body
+
+
 @dataclass
 class Attribution:
     """The scoreboard row. This is the contract the 5%/12-mo rev-share settles

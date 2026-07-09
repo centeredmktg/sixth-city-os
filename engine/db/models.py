@@ -87,6 +87,27 @@ class SignalRow(Base):
     account: Mapped["AccountRow"] = relationship(back_populates="signals")
 
 
+class MessageRow(Base):
+    """A first-class outreach message (draft → sent) for a contact at a company.
+    Identity is (contact_email, company_domain); original preserved, edit in edited_*."""
+    __tablename__ = "messages"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    contact_email: Mapped[str] = mapped_column(String, default="")
+    company_domain: Mapped[str] = mapped_column(String, default="")
+    reason_signal: Mapped[str | None] = mapped_column(String, nullable=True)
+    subject: Mapped[str] = mapped_column(String, default="")
+    body: Mapped[str] = mapped_column(String, default="")
+    edited_subject: Mapped[str] = mapped_column(String, default="")
+    edited_body: Mapped[str] = mapped_column(String, default="")
+    status: Mapped[str] = mapped_column(String, default="draft")
+    gmail_message_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    gmail_thread_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    sent_by: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class SettingRow(Base):
     """Generic single-value settings store (key -> JSON). Holds the team-tunable
     'scoring_config' rubric; a JSON value means new levers need no migration."""
