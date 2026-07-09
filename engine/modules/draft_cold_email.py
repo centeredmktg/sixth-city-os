@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 
 from engine.config import CONFIG
-from engine.models import Account, Outreach, Signal, Vertical
+from engine.models import Account, Contact, Outreach, Signal, Vertical
 from engine.modules import outreach_hooks
 
 MODEL = "claude-opus-4-8"
@@ -57,12 +57,12 @@ _OUTPUT_SCHEMA = {
 }
 
 
-def draft(account: Account, live: bool = False) -> Outreach:
-    """One Outreach for an account. Precedence: a pre-generated draft stored on
-    the account (extra['outreach']) wins — it was already voice-matched, so we
-    surface it in the list AND reuse it at push instead of re-spending the key.
-    Otherwise `live=True` attempts a fresh Anthropic draft (push only); everything
-    else, and any failure, returns the deterministic template."""
+def draft(account: Account, live: bool = False, contact: Contact | None = None) -> Outreach:
+    """One Outreach for an account, optionally composed FOR a specific contact (the
+    natural path: company → person → message). When a contact is given the email greets
+    them by first name and the live prompt gets their name/title; the 'why' still comes
+    from the account's strongest signal. Precedence: a stored extra['outreach'] draft
+    wins; else `live=True` attempts Anthropic (push only); else the deterministic template."""
     stored = _stored_outreach(account)
     if stored is not None:
         return stored
@@ -71,7 +71,7 @@ def draft(account: Account, live: bool = False) -> Outreach:
     reason = strongest.detail if strongest else "we noticed an opportunity on your site"
 
     if live:
-        ai = _draft_live(account, strongest, reason)
+        ai = _draft_live(account, strongest, reason, contact)
         if ai is not None:
             return ai
 
@@ -82,8 +82,10 @@ def draft(account: Account, live: bool = False) -> Outreach:
     who = "businesses across Ohio" if account.vertical is Vertical.UNKNOWN \
         else f"{vertical} businesses across Ohio"
     subject = f"Quick note on {account.name}'s website"
+    first = contact.name.split()[0] if contact and contact.name else ""
+    hi = f"Hi {first}" if first else "Hi"
     paragraphs = [
-        f"Hi — ran {account.name} through our site evaluation. {reason}",
+        f"{hi} — ran {account.name} through our site evaluation. {reason}",
         "The usual pitch when something like this turns up is a quick fix — a plugin, "
         "a new ad set, a redesign. But a point fix doesn't ask the bigger question: is "
         "your digital footprint actually pointed at where the business is trying to go?",
@@ -125,12 +127,12 @@ def _ai_enabled() -> bool:
     return bool(CONFIG.anthropic_api_key) and not CONFIG.dry_run
 
 
-def _draft_live(account: Account, strongest, reason: str) -> Outreach | None:
+def _draft_live(account: Account, strongest, reason: str, contact: Contact | None = None) -> Outreach | None:
     """Voice-matched draft via Anthropic. Returns None (→ template fallback) when
     disabled or on any failure — never raises."""
     if not _ai_enabled():
         return None
-    data = _call_anthropic(account, strongest, reason)
+    data = _call_anthropic(account, strongest, reason, contact)
     if not data:
         return None
     return Outreach(
@@ -141,16 +143,20 @@ def _draft_live(account: Account, strongest, reason: str) -> Outreach | None:
     )
 
 
-def _user_message(account: Account, reason: str) -> str:
-    """The live prompt's user turn: the prospect, the signal to open on, and any
-    personalization facts the hook layer surfaced. Facts are OPTIONAL material — the
-    system prompt caps the email at 80 words and forbids fabricating specifics, so we
-    hand the model only true facts and let it decide what fits. Pure (no network) so
-    the fact injection is unit-testable without mocking the SDK."""
+def _user_message(account: Account, reason: str, contact: Contact | None = None) -> str:
+    """The live prompt's user turn: the prospect, the signal to open on, the specific
+    person (when known), and any personalization facts the hook layer surfaced. Facts
+    are OPTIONAL material — the system prompt caps the email at 80 words and forbids
+    fabricating specifics, so we hand the model only true facts and let it decide what
+    fits. Pure (no network) so the injection is unit-testable without mocking the SDK."""
     vertical = account.vertical.value.replace("_", "/")
     region = "across Ohio" if account.vertical is Vertical.UNKNOWN else f"a {vertical} business in Ohio"
+    person = ""
+    if contact and contact.name:
+        role = f", {contact.title}" if contact.title else ""
+        person = f"\nWriting to: {contact.name}{role} — greet them by first name."
     msg = (
-        f"Prospect: {account.name} ({account.domain}), {region}.\n"
+        f"Prospect: {account.name} ({account.domain}), {region}.{person}\n"
         f"Signal to open on: {reason}"
     )
     facts = [h.fact for h in outreach_hooks.collect(account)]
@@ -160,11 +166,11 @@ def _user_message(account: Account, reason: str) -> str:
     return msg
 
 
-def _call_anthropic(account: Account, strongest, reason: str) -> dict | None:
+def _call_anthropic(account: Account, strongest, reason: str, contact: Contact | None = None) -> dict | None:
     """The only side effect. Opus 4.8 + adaptive thinking + low effort + a cached
     system prompt + structured output. Swallows every error → None (like the
     sources' fetch())."""
-    user = _user_message(account, reason)
+    user = _user_message(account, reason, contact)
     try:
         import anthropic
 
