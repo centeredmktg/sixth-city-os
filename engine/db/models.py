@@ -68,6 +68,7 @@ class ContactRow(Base):
     linkedin_url: Mapped[str] = mapped_column(String, default="")
     seniority: Mapped[str] = mapped_column(String, default="")
     source: Mapped[str] = mapped_column(String, default="apollo")
+    hubspot_id: Mapped[str | None] = mapped_column(String, nullable=True)
 
     account: Mapped["AccountRow"] = relationship(back_populates="contacts")
 

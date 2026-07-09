@@ -208,6 +208,7 @@ class Contact:
     linkedin_url: str = ""
     seniority: str = ""
     source: str = "apollo"
+    hubspot_id: str = ""        # set when the person is created/associated in HubSpot
 
 
 @dataclass
