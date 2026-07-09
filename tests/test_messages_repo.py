@@ -40,3 +40,11 @@ def test_set_status_stamps_send_metadata(session):
                          sent_at=datetime.now(timezone.utc), sent_by="rep@sixthcity.com")
     assert sent.status == MessageStatus.SENT
     assert sent.gmail_message_id == "g1" and sent.sent_by == "rep@sixthcity.com"
+
+
+def test_mark_sending_is_atomic_claim(session):
+    m = mr.create_message(session, _draft())
+    assert mr.mark_sending(session, m.id) is True      # draft → sending: we win
+    assert mr.mark_sending(session, m.id) is False     # already sending: second loses
+    mr.set_status(session, m.id, MessageStatus.SENT)
+    assert mr.mark_sending(session, m.id) is False     # sent: can't reclaim

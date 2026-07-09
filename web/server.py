@@ -419,9 +419,16 @@ def send_message(message_id: int, request: Request, session=Depends(db_session))
     m = messages_repo.get_message(session, message_id)
     if m is None:
         raise HTTPException(status_code=404, detail="message not found")
+    # Atomic claim: only the caller that flips draft/approved → sending may send. A
+    # duplicate/concurrent click loses the race and returns the current state, never a
+    # second email.
+    if not messages_repo.mark_sending(session, message_id):
+        cur = messages_repo.get_message(session, message_id)
+        return {"sent": cur.status == MessageStatus.SENT, "reason": f"already_{cur.status.value}"}
     rep = _rep_email(request)
     result = gmail_send.send(session, rep, m.contact_email, m.final_subject, m.final_body)
     if result is None:
+        messages_repo.set_status(session, message_id, MessageStatus.DRAFT)   # revert → retryable, back in queue
         reason = "connect_gmail" if not gmail_tokens.is_connected(session, rep) else "send_failed"
         return {"sent": False, "reason": reason}
     messages_repo.set_status(session, message_id, MessageStatus.SENT,

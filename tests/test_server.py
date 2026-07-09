@@ -344,3 +344,18 @@ def test_send_message_success_stamps_and_drops(client, session, monkeypatch):
 
 def test_send_unknown_message_404(client):
     assert client.post("/api/messages/99999/send").status_code == 404
+
+
+def test_send_message_no_double_send(client, session, monkeypatch):
+    _seed_company_with_contact(session)
+    mid = client.post("/api/messages", json={"domain": "acme.com", "contact_email": "jane@acme.com"}).json()["id"]
+    calls = {"n": 0}
+    def _fake(*a, **k):
+        calls["n"] += 1
+        return {"id": "gm1", "threadId": "gt1"}
+    monkeypatch.setattr("engine.gmail.send.send", _fake)
+    r1 = client.post(f"/api/messages/{mid}/send").json()
+    r2 = client.post(f"/api/messages/{mid}/send").json()
+    assert r1["sent"] is True
+    assert r2["reason"] == "already_sent"              # duplicate blocked
+    assert calls["n"] == 1                              # exactly one real send

@@ -22,3 +22,11 @@ def test_headers_and_bcc_present():
 def test_bcc_omitted_when_absent():
     msg = _decode(build_raw("r@x.com", "j@a.com", "S", "B"))
     assert msg["Bcc"] is None                        # unset BCC → send without CRM log
+
+
+def test_header_injection_is_stripped():
+    # A newline in the (user-editable) subject must not inject an extra header.
+    msg = _decode(build_raw("rep@x.com", "j@a.com", "Hi\r\nBcc: evil@x.com", "Body",
+                            bcc="3358054@bcc.hubspot.com"))
+    assert "\n" not in msg["Subject"] and "\r" not in msg["Subject"]
+    assert msg.get_all("Bcc") == ["3358054@bcc.hubspot.com"]   # only the legit Bcc
