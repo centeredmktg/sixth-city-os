@@ -228,3 +228,61 @@ def test_scoreboard_value_metrics_no_revshare(client):
     assert body["outcomes"]["pipeline_value"] is None
     # no rev-share / attribution language leaks into the payload
     assert "rev" not in str(body).lower() and "owed" not in str(body).lower()
+
+
+# --- Scoring rubric endpoints -------------------------------------------------
+import pytest as _pytest
+from engine.scoring.config import set_active_config as _set_active, DEFAULT_CONFIG as _DEF
+
+
+@_pytest.fixture(autouse=True)
+def _reset_active_config():
+    """Restore the default active config after each test — PUT mutates a process global."""
+    yield
+    _set_active(_DEF)
+
+
+def _seed_account(session, domain="a.com"):
+    from engine.db import repo
+    from engine.models import Account, Signal, SignalKind, Vertical
+    a = Account(name="x", domain=domain, vertical=Vertical.INDUSTRIAL_MANUFACTURING, state="OH")
+    a.signals = [Signal(kind=SignalKind.AI_CITATION_GAP, source="t", value=1.0)]
+    repo.upsert_accounts(session, [a])
+
+
+def test_get_scoring_config_returns_config_and_defaults(client):
+    r = client.get("/api/scoring-config").json()
+    assert r["config"]["fit_weight"] == 0.4
+    assert r["defaults"]["band_a"] == 75.0
+    assert len(r["config"]["vertical_fit_bonus"]) == 10
+
+
+def test_put_bad_config_400_and_no_rescore(client, session):
+    _seed_account(session)
+    r = client.put("/api/scoring-config", json={"band_a": 10, "band_b": 20, "band_c": 30})
+    assert r.status_code == 400
+    # nothing saved: GET still shows defaults
+    assert client.get("/api/scoring-config").json()["config"]["band_a"] == 75.0
+
+
+def test_put_good_config_saves_active_and_rescores(client, session):
+    _seed_account(session)
+    body = {**client.get("/api/scoring-config").json()["config"], "fit_weight": 0.5}
+    r = client.put("/api/scoring-config", json=body)
+    assert r.status_code == 200
+    j = r.json()
+    assert j["saved"] is True and j["rescored"] == 1
+    assert set(j["bands"]) == {"A", "B", "C", "R"} and sum(j["bands"].values()) == 1
+    # persisted for the next GET
+    assert client.get("/api/scoring-config").json()["config"]["fit_weight"] == 0.5
+
+
+def test_preview_persists_nothing(client, session):
+    from engine.db import settings_repo
+    _seed_account(session)
+    before = settings_repo.load_scoring_config(session)
+    body = {**client.get("/api/scoring-config").json()["config"], "fit_weight": 0.9}
+    r = client.post("/api/scoring-config/preview", json=body)
+    assert r.status_code == 200
+    assert r.json()["total"] == 1 and set(r.json()["bands"]) == {"A", "B", "C", "R"}
+    assert settings_repo.load_scoring_config(session) == before   # unchanged
