@@ -12,13 +12,14 @@ import os
 import threading
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import selectinload
 
 from engine.attribution import dashboard
+from engine.config import CONFIG
 from engine.db import repo
 from engine.db.base import make_engine, create_all, make_session_factory
 from engine.db.auto_migrate import run_startup_migrations
@@ -29,6 +30,7 @@ from engine.gmail import tokens as gmail_tokens
 from engine.models import Message, MessageStatus
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
+from engine.jobs import claim
 from engine.jobs import enrich as enrich_job
 from engine.jobs import enrich_places
 from engine.jobs.rescore import rescore_all
@@ -104,6 +106,16 @@ def db_session():
         s.close()
 
 
+def _claim_in_background(limit: int | None = None):
+    """Runs the claim job on its OWN session — the request session (db_session) is
+    already closed by the time a fire-and-forget BackgroundTasks callback runs."""
+    session = _SessionLocal()
+    try:
+        claim.run(session, limit=limit)
+    finally:
+        session.close()
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
@@ -114,7 +126,8 @@ def health():
 
 
 @app.post("/api/ingest")
-async def ingest(file: UploadFile = File(...), session=Depends(db_session)):
+async def ingest(file: UploadFile = File(...), background_tasks: BackgroundTasks = None,
+                 session=Depends(db_session)):
     raw = (await file.read()).decode("utf-8")
     rows = list(csvmod.DictReader(io.StringIO(raw)))
     if not has_domain_column(rows):
@@ -137,6 +150,11 @@ async def ingest(file: UploadFile = File(...), session=Depends(db_session)):
         a.net_new = (a.domain.strip().lower() not in existing) if a.domain else None
 
     repo.upsert_accounts(session, routed)
+
+    # Auto-claim: fire-and-forget so a big list doesn't block the upload response.
+    # Flag-gated (default OFF) — turning it on is a deliberate prod step.
+    if CONFIG.auto_claim_enabled and background_tasks is not None:
+        background_tasks.add_task(_claim_in_background)
 
     return {
         "ingested": len(rows),
@@ -261,6 +279,14 @@ def enrich_places_pass(limit: int = 50, session=Depends(db_session)):
     flag). Dry without GOOGLE_PLACES_KEY -> no-op, zero spend. Cron runs this AFTER
     /api/enrich has drained (remaining == 0)."""
     return enrich_places.run(session, limit=limit)
+
+
+@app.post("/api/claim")
+def claim_endpoint(limit: int = None, session=Depends(db_session)):
+    """Manual/cron drain of the auto-claim job — idempotent (claim.run only touches
+    net-new, not-yet-claimed, not-yet-pushed rows), so re-running or overlapping with
+    the ingest-triggered background task is safe."""
+    return claim.run(session, limit=limit)
 
 
 @app.post("/api/push")
