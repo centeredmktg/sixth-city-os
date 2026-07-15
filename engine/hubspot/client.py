@@ -34,6 +34,7 @@ _MAX_RETRIES = 6          # 429 / transient 5xx retry budget
 MACHINE_SOURCED_PROPERTY = "machine_sourced"
 SOURCE_PROVENANCE_PROPERTY = "machine_source_origin"
 MACHINE_SOURCED_DATE_PROPERTY = "machine_sourced_date"
+ENGINE_STATUS_PROPERTY = "engine_status"   # discovered -> working (hygiene filter)
 
 
 class HubSpotClient:
@@ -67,6 +68,13 @@ class HubSpotClient:
 
     def _put(self, path: str, payload: dict) -> dict:
         return self._request("put", path, payload)
+
+    def _get(self, path: str, params: dict | None = None) -> dict:
+        if self._dry:
+            return {}
+        r = self._session.get(f"{API}{path}", params=params or {}, timeout=30)
+        r.raise_for_status()
+        return r.json() if r.content else {}
 
     # --- net-new gate -------------------------------------------------------
     def existing_domains(self, domains: list[str]) -> set[str]:
@@ -161,6 +169,44 @@ class HubSpotClient:
         # TODO: sequence enrollment is API-restricted (likely a workflow hand-off, not a
         # plain write). The net-new, tagged company is in; auto-enrolling the tailored
         # outreach is the follow-on once we resolve the enrollment path.
+        return new_id
+
+    def claim_company(self, account: Account, owner_id: str) -> str | None:
+        """Auto-claim: create the net-new company stamped machine_sourced + provenance +
+        first-touch date + engine_status=discovered + owner. Lean — company only, NO
+        contact, NO outreach draft (those are outreach spend, gated to the Compose flow).
+
+        Guards: (1) owner_id is REQUIRED — refuse rather than create an unassigned record;
+        (2) domain already in the book -> never claim (return the existing id if it's ours,
+        None if it's John's pre-existing record). Idempotent: a re-run on an already-claimed
+        domain returns its id without writing."""
+        if not owner_id:
+            raise ValueError("claim_company requires an owner_id — refusing to create an unassigned company")
+
+        if self._dry:
+            print(f"  [DRY] would claim {account.domain} | machine_sourced=true "
+                  f"| {ENGINE_STATUS_PROPERTY}=discovered | owner={owner_id}")
+            return f"dry-{account.domain}"
+
+        existing = self.find_company_id_by_domain(account.domain)
+        if existing:
+            # Already present. We can't tell ours vs John's from the id alone here, and the
+            # SLA guard is conservative: NEVER re-stamp an existing record. Return the id so
+            # callers can associate/promote, but no write happens.
+            print(f"  [exists] {account.domain} already in CRM (id {existing}) — not claimed")
+            return existing
+
+        created = self._post("/crm/v3/objects/companies", {"properties": {
+            "name": account.name,
+            "domain": account.domain,
+            MACHINE_SOURCED_PROPERTY: "true",
+            SOURCE_PROVENANCE_PROPERTY: account.discovered_by,
+            MACHINE_SOURCED_DATE_PROPERTY: date.today().isoformat(),
+            ENGINE_STATUS_PROPERTY: "discovered",
+            "hubspot_owner_id": owner_id,
+        }})
+        new_id = created["id"]
+        print(f"  [claimed] {account.domain} -> id {new_id} | machine_sourced=true owner={owner_id}")
         return new_id
 
     def _write_contact(self, company_id: str, contact: dict | None) -> None:
