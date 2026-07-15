@@ -241,7 +241,7 @@ def scoreboard(session=Depends(db_session)):
     by_band = {b: sum(1 for r in rows if (r.band or "") == b) for b in ("A", "B", "C", "R")}
     net_new = sum(1 for r in rows if r.net_new is True)
     perfect_fit = sum(1 for r in rows if (r.band or "") == "A" and r.net_new is True)
-    in_crm = sum(1 for r in rows if r.pushed)
+    in_crm = sum(1 for r in rows if r.claimed)   # "Added to CRM" = auto-claimed, not worked
     by_vertical = {}
     for r in rows:
         by_vertical[r.vertical] = by_vertical.get(r.vertical, 0) + 1
@@ -261,6 +261,31 @@ def scoreboard(session=Depends(db_session)):
         "top_verticals": [{"vertical": v, "count": n} for v, n in top_verticals],
         "outcomes": outcomes,
     }
+
+
+@app.get("/api/added")
+def added(session=Depends(db_session), limit: int = 200):
+    """The claimed companies behind the scoreboard's "Added to CRM" count — sourced
+    from the SAME claimed query as `scoreboard.in_crm`, so the count and list can
+    never disagree. Newest-claimed first (nulls last, e.g. pre-Task-5 rows)."""
+    rows = (session.query(AccountRow)
+            .filter(AccountRow.claimed.is_(True))
+            .order_by(AccountRow.claimed_at.desc().nullslast())
+            .all())
+    total = len(rows)
+    owner_names = {o["id"]: o["name"] for o in HubSpotClient().list_owners()}
+    default_owner = owner_names.get(settings_repo.load_default_owner_id(session), "")
+    out = []
+    for r in rows[:limit]:
+        out.append({
+            "domain": r.domain,
+            "name": r.name,
+            "claimed_at": r.claimed_at.isoformat() if r.claimed_at else None,
+            "owner_name": default_owner,   # single team default today; per-record owner later
+            "contact_count": len(repo.get_contacts(session, r.domain)),
+            "engine_status": "working" if r.pushed else "discovered",
+        })
+    return {"added": out, "total": total}
 
 
 @app.post("/api/enrich")
