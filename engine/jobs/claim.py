@@ -29,7 +29,7 @@ def run(session: Session, limit: int | None = None, client=None, owner_id=None) 
                  AccountRow.claimed.is_(False),
                  AccountRow.pushed.is_(False))
          .order_by(AccountRow.total.desc()))
-    if limit:
+    if limit is not None:
         q = q.limit(limit)
     rows = q.all()
 
