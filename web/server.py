@@ -31,7 +31,6 @@ from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
 from engine.jobs import enrich as enrich_job
 from engine.jobs import enrich_places
-from engine.jobs import push_to_hubspot
 from engine.jobs.rescore import rescore_all
 from engine.modules import draft_cold_email
 from engine.models import Route, Stage
@@ -262,6 +261,17 @@ def enrich_places_pass(limit: int = 50, session=Depends(db_session)):
 
 @app.post("/api/push")
 def push(req: PushRequest, session=Depends(db_session)):
+    """Confirm = PROMOTE, not create. The company is already in HubSpot by the time an
+    operator confirms (CLAIM happened at discovery) — this just flips engine_status
+    discovered -> working for the routes the team actually works (closer). A route
+    gate still applies here: promoting every selected domain regardless of route would
+    silently pull nurture firms into active work. Requires a default owner (Settings)
+    so a not-yet-claimed domain can still be promoted straight to working."""
+    owner_id = settings_repo.load_default_owner_id(session)
+    if not owner_id:
+        raise HTTPException(status_code=400,
+                            detail="Set a default owner (Settings) before working accounts.")
+
     selected = {a.domain: a for a in repo.get_candidates(session)
                 if a.domain in set(req.domains)}
 
@@ -273,40 +283,25 @@ def push(req: PushRequest, session=Depends(db_session)):
             raise HTTPException(status_code=400, detail=f"unknown route {req.route!r}")
 
     # Confirm the HITL gate for the operator-selected firms, applying their elected
-    # route as the override, then run the push job (which re-validates net-new by
-    # domain at claim time as the SLA guard).
+    # route as the override.
     for a in selected.values():
         a.route.confirmed = True
         a.route.confirmed_by = "operator"
         if override is not None:
             a.route.confirmed_route = override
 
-    pushed_by_domain = {a.domain: a for a in push_to_hubspot.run(list(selected.values()))}
-
-    # Honest per-domain outcome — the UI marks a row "Pushed" ONLY on "claimed", and
-    # surfaces the reason otherwise (so a silent no-op can't read as success).
+    client = HubSpotClient()
     results = []
     claimed = 0
     for dom, a in selected.items():
-        p = pushed_by_domain.get(dom)
-        if p is not None and getattr(p, "claimed", bool(p.hubspot_id)) \
-                and p.hubspot_id and not p.hubspot_id.startswith("dry-"):
-            repo.mark_pushed(session, dom, p.hubspot_id)
-            claimed += 1
-            results.append({"domain": dom, "status": "claimed", "hubspot_id": p.hubspot_id})
-        elif p is not None and getattr(p, "claimed", True):
-            # Reached the claim and "succeeded" but not persistable (dry run) — treat
-            # as claimed for the UI flow; nothing was written to the DB or CRM.
-            results.append({"domain": dom, "status": "claimed", "hubspot_id": p.hubspot_id})
-        elif p is not None:
-            results.append({"domain": dom, "status": "exists", "hubspot_id": p.hubspot_id,
-                            "reason": "already in HubSpot — not claimed"})
-        elif a.route.effective != Route.CLOSER:
+        if a.route.effective != Route.CLOSER:
             results.append({"domain": dom, "status": "skipped",
-                            "reason": f"routed {a.route.effective.value} — only LFG/closer is claimed"})
-        else:
-            results.append({"domain": dom, "status": "exists",
-                            "reason": "already in HubSpot — not claimed"})
+                            "reason": f"routed {a.route.effective.value} — only LFG/closer is worked"})
+            continue
+        hid = client.promote_to_working(a, owner_id)
+        repo.mark_pushed(session, dom, hid)
+        claimed += 1
+        results.append({"domain": dom, "status": "claimed", "hubspot_id": hid})
 
     return {"results": results, "claimed": claimed, "count": claimed,
             "pushed": [r for r in results if r["status"] == "claimed"],

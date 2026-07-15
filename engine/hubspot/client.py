@@ -69,6 +69,9 @@ class HubSpotClient:
     def _put(self, path: str, payload: dict) -> dict:
         return self._request("put", path, payload)
 
+    def _patch(self, path: str, payload: dict) -> dict:
+        return self._request("patch", path, payload)
+
     def _get(self, path: str, params: dict | None = None) -> dict:
         if self._dry:
             return {}
@@ -208,6 +211,35 @@ class HubSpotClient:
         new_id = created["id"]
         print(f"  [claimed] {account.domain} -> id {new_id} | machine_sourced=true owner={owner_id}")
         return new_id
+
+    def promote_to_working(self, account: Account, owner_id: str) -> str | None:
+        """Operator confirmed a discovery -> mark it working (moves it into the team's
+        active views). If it's already in HubSpot, PATCH engine_status=working. If it's
+        not claimed yet (auto-claim off or still draining), claim it straight to working
+        so a fast operator is never blocked. Owner required on create."""
+        if self._dry:
+            print(f"  [DRY] would promote {account.domain} -> {ENGINE_STATUS_PROPERTY}=working")
+            return f"dry-{account.domain}"
+
+        existing = self.find_company_id_by_domain(account.domain)
+        if existing:
+            self._patch(f"/crm/v3/objects/companies/{existing}",
+                        {"properties": {ENGINE_STATUS_PROPERTY: "working"}})
+            print(f"  [working] {account.domain} (id {existing}) -> engine_status=working")
+            return existing
+
+        if not owner_id:
+            raise ValueError("promote_to_working requires an owner_id to claim a not-yet-in-CRM company")
+        created = self._post("/crm/v3/objects/companies", {"properties": {
+            "name": account.name,
+            "domain": account.domain,
+            MACHINE_SOURCED_PROPERTY: "true",
+            SOURCE_PROVENANCE_PROPERTY: account.discovered_by,
+            MACHINE_SOURCED_DATE_PROPERTY: date.today().isoformat(),
+            ENGINE_STATUS_PROPERTY: "working",
+            "hubspot_owner_id": owner_id,
+        }})
+        return created["id"]
 
     def _write_contact(self, company_id: str, contact: dict | None) -> None:
         """Create a Contact from the site-scraped email/phone and associate it to the

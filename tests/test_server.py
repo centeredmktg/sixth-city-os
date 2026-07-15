@@ -121,11 +121,13 @@ def test_candidates_net_new_ranks_before_pending_and_in_book(client, monkeypatch
     assert counts["in_book"] == 1
 
 
-def test_push_claims_selected_and_drops_them(client, monkeypatch):
+def test_push_claims_selected_and_drops_them(client, session, monkeypatch):
     import web.server as server
-    # Fake the claim: return a deterministic id, no HubSpot call.
-    monkeypatch.setattr(server.HubSpotClient, "push",
-                        lambda self, account, outreach: f"hs-{account.domain}")
+    from engine.db import settings_repo
+    settings_repo.save_default_owner_id(session, "999")
+    # Fake the promote: return a deterministic id, no HubSpot call.
+    monkeypatch.setattr(server.HubSpotClient, "promote_to_working",
+                        lambda self, account, owner_id: f"hs-{account.domain}")
     # Scoreboard text is read from HubSpot; stub it to avoid a network call.
     monkeypatch.setattr("web.server.dashboard.build", lambda: "SCOREBOARD")
 
@@ -144,13 +146,15 @@ def test_push_claims_selected_and_drops_them(client, monkeypatch):
     assert "buckeye.example" not in {c["domain"] for c in cands}
 
 
-def test_push_with_route_override_claims_nurture_domain(client, monkeypatch):
+def test_push_with_route_override_claims_nurture_domain(client, session, monkeypatch):
     """Bug B: the operator's route choice must reach the server. A nurture-recommended
     firm the operator elects as closer (LFG) gets claimed. Without the override the
     server reads the stored route (nurture) and silently pushes nothing."""
     import web.server as server
-    monkeypatch.setattr(server.HubSpotClient, "push",
-                        lambda self, account, outreach: f"hs-{account.domain}")
+    from engine.db import settings_repo
+    settings_repo.save_default_owner_id(session, "999")
+    monkeypatch.setattr(server.HubSpotClient, "promote_to_working",
+                        lambda self, account, owner_id: f"hs-{account.domain}")
     monkeypatch.setattr("web.server.dashboard.build", lambda: "SCOREBOARD")
     client.post("/api/ingest",
                 files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
@@ -168,13 +172,15 @@ def test_push_with_route_override_claims_nurture_domain(client, monkeypatch):
     assert "lakeshore.example" not in cands
 
 
-def test_push_without_override_reports_skip_not_silent_success(client, monkeypatch):
+def test_push_without_override_reports_skip_not_silent_success(client, session, monkeypatch):
     """Bug A: a nurture firm pushed WITHOUT electing closer is NOT claimed. The server
     reports it skipped (with a reason) so the UI can't misread a no-op as 'Pushed'.
     The firm stays in the queue — not falsely dropped."""
     import web.server as server
-    monkeypatch.setattr(server.HubSpotClient, "push",
-                        lambda self, account, outreach: f"hs-{account.domain}")
+    from engine.db import settings_repo
+    settings_repo.save_default_owner_id(session, "999")
+    monkeypatch.setattr(server.HubSpotClient, "promote_to_working",
+                        lambda self, account, owner_id: f"hs-{account.domain}")
     monkeypatch.setattr("web.server.dashboard.build", lambda: "SCOREBOARD")
     client.post("/api/ingest",
                 files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
@@ -188,6 +194,20 @@ def test_push_without_override_reports_skip_not_silent_success(client, monkeypat
     assert body["claimed"] == 0
     cands = {c["domain"] for c in client.get("/api/candidates").json()["candidates"]}
     assert "lakeshore.example" in cands   # not falsely dropped
+
+
+def test_push_without_default_owner_returns_400(client, monkeypatch):
+    """No default owner set (Settings) -> /api/push refuses rather than promoting an
+    unassigned company."""
+    import web.server as server
+    monkeypatch.setattr(server.HubSpotClient, "promote_to_working",
+                        lambda self, account, owner_id: f"hs-{account.domain}")
+    client.post("/api/ingest",
+                files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
+
+    r = client.post("/api/push", json={"domains": ["buckeye.example"]})
+    assert r.status_code == 400
+    assert "default owner" in r.json()["detail"].lower()
 
 
 def test_enrich_endpoint_returns_progress(client, monkeypatch):
