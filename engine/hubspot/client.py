@@ -356,3 +356,15 @@ class HubSpotClient:
         except Exception as e:  # never break the scoreboard on a HubSpot hiccup
             print(f"  [outcomes] degraded ({type(e).__name__}: {e})")
             return pending
+
+    def list_owners(self) -> list[dict]:
+        """Active HubSpot owners for the default-owner picker (owners.read scope)."""
+        if self._dry:
+            return []
+        data = self._get("/crm/v3/owners", {"limit": 100})
+        out = []
+        for r in data.get("results", []):
+            name = " ".join(p for p in (r.get("firstName"), r.get("lastName")) if p).strip()
+            out.append({"id": str(r.get("id")), "name": name or (r.get("email") or ""),
+                        "email": r.get("email") or ""})
+        return out
