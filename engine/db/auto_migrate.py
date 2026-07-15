@@ -18,7 +18,7 @@ from __future__ import annotations
 from engine.db import (
     migrate_add_enriched, migrate_add_net_new, migrate_add_places_enriched,
     migrate_add_contacts, migrate_add_contact_hubspot_id, migrate_add_messages,
-    migrate_add_settings, migrate_add_gmail_accounts,
+    migrate_add_settings, migrate_add_gmail_accounts, migrate_add_claimed,
 )
 
 # Additive, idempotent schema migrations only — NOT vertical_rename (that's data).
@@ -31,6 +31,7 @@ _MIGRATIONS = [
     migrate_add_messages,
     migrate_add_settings,
     migrate_add_gmail_accounts,
+    migrate_add_claimed,
 ]
 
 

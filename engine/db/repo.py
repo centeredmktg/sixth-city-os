@@ -21,6 +21,8 @@ def _row_from_account(a: Account) -> AccountRow:
         state=a.state, linkedin_url=a.linkedin_url, discovered_by=a.discovered_by,
         extra=a.extra or {}, stage=a.stage.value, hubspot_id=a.hubspot_id,
         pushed=a.stage == Stage.PUSHED, net_new=a.net_new, pursued=a.pursued,
+        claimed=getattr(a, "claimed", False),
+        claimed_at=getattr(a, "claimed_at", None),
     )
     if a.score:
         row.fit = a.score.fit
@@ -67,6 +69,8 @@ def _account_from_row(row: AccountRow) -> Account:
         confirmed_route=Route(row.route_confirmed_route) if row.route_confirmed_route else None,
         confirmed_by=row.route_confirmed_by,
     )
+    a.__dict__["claimed"] = bool(row.claimed)
+    a.__dict__["claimed_at"] = row.claimed_at
     return a
 
 
@@ -82,6 +86,8 @@ def upsert_accounts(session: Session, accounts: list[Account]) -> None:
         new_row = _row_from_account(a)
         if existing is not None:
             new_row.pushed = existing.pushed or new_row.pushed
+            new_row.claimed = existing.claimed or new_row.claimed
+            new_row.claimed_at = existing.claimed_at or new_row.claimed_at
             new_row.hubspot_id = existing.hubspot_id or new_row.hubspot_id
             # Preserve the pursued state + sourced contacts so a re-ingest never wipes
             # decision-makers we already paid Apollo to find.
