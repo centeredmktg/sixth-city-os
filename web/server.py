@@ -51,6 +51,10 @@ class PushRequest(BaseModel):
     route: str | None = None
 
 
+class OwnerConfig(BaseModel):
+    owner_id: str
+
+
 class RevalidateStaticFiles(StaticFiles):
     """StaticFiles that tells browsers to ALWAYS revalidate (Cache-Control: no-cache).
 
@@ -502,6 +506,30 @@ def preview_scoring_config(body: dict, session=Depends(db_session)):
     cfg = _config_from_body(body)
     return {"bands": _band_distribution(session, cfg),
             "total": session.query(AccountRow).count()}
+
+
+# --- Owner config: default owner for unclaimed promotions ---
+
+
+@app.get("/api/owners")
+def owners():
+    """List available owners from HubSpot for the dropdown."""
+    return {"owners": HubSpotClient().list_owners()}
+
+
+@app.get("/api/owner-config")
+def get_owner_config(session=Depends(db_session)):
+    """Get the default owner ID for claiming firms."""
+    return {"default_owner_id": settings_repo.load_default_owner_id(session)}
+
+
+@app.put("/api/owner-config")
+def put_owner_config(cfg: OwnerConfig, session=Depends(db_session)):
+    """Set the default owner ID. Rejects blank owner_id."""
+    if not cfg.owner_id.strip():
+        raise HTTPException(status_code=400, detail="owner_id is required")
+    settings_repo.save_default_owner_id(session, cfg.owner_id.strip())
+    return {"default_owner_id": cfg.owner_id.strip()}
 
 
 # SPA deep-link routes: each nav item has a real URL (bookmarkable, refresh-safe,
