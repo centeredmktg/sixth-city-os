@@ -298,10 +298,19 @@ def push(req: PushRequest, session=Depends(db_session)):
             results.append({"domain": dom, "status": "skipped",
                             "reason": f"routed {a.route.effective.value} — only LFG/closer is worked"})
             continue
-        hid = client.promote_to_working(a, owner_id)
-        repo.mark_pushed(session, dom, hid)
-        claimed += 1
-        results.append({"domain": dom, "status": "claimed", "hubspot_id": hid})
+        try:
+            hid = client.promote_to_working(a, owner_id=owner_id)
+        except Exception as e:
+            results.append({"domain": dom, "status": "error", "reason": str(e)})
+            continue
+        if hid and not str(hid).startswith("dry-"):
+            repo.mark_pushed(session, dom, hid)
+            claimed += 1
+            results.append({"domain": dom, "status": "claimed", "hubspot_id": hid})
+        elif hid:  # dry-mode id — claimed for the UI flow, nothing persisted
+            results.append({"domain": dom, "status": "claimed", "hubspot_id": hid})
+        else:
+            results.append({"domain": dom, "status": "error", "reason": "promote returned no id"})
 
     return {"results": results, "claimed": claimed, "count": claimed,
             "pushed": [r for r in results if r["status"] == "claimed"],

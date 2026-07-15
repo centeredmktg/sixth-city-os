@@ -210,6 +210,30 @@ def test_push_without_default_owner_returns_400(client, monkeypatch):
     assert "default owner" in r.json()["detail"].lower()
 
 
+def test_push_dry_mode_claims_without_persisting(client, session, monkeypatch):
+    """Finding 1 regression: in DRY_RUN mode promote_to_working returns a fake
+    'dry-<domain>' id without touching HubSpot. The endpoint must still report the
+    push as claimed (so the UI flow works) but must NOT mark_pushed / drop the row
+    from the candidate queue, since nothing was actually written. Deliberately does
+    NOT monkeypatch promote_to_working — exercises the real dry-mode branch."""
+    from engine.db import settings_repo
+    settings_repo.save_default_owner_id(session, "999")
+
+    client.post("/api/ingest",
+                files={"file": ("clay.csv", io.BytesIO(CSV.encode()), "text/csv")})
+
+    r = client.post("/api/push", json={"domains": ["buckeye.example"]})
+    assert r.status_code == 200
+    body = r.json()
+    res = {x["domain"]: x for x in body["results"]}
+    assert res["buckeye.example"]["status"] == "claimed"
+    assert res["buckeye.example"]["hubspot_id"].startswith("dry-")
+
+    # Nothing was persisted — the domain is still in the candidate queue.
+    cands = {c["domain"] for c in client.get("/api/candidates").json()["candidates"]}
+    assert "buckeye.example" in cands
+
+
 def test_enrich_endpoint_returns_progress(client, monkeypatch):
     import engine.jobs.enrich as enrichmod
     monkeypatch.setattr(enrichmod, "default_sources", lambda: [])  # no network in test
