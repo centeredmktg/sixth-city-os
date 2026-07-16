@@ -69,7 +69,7 @@ function Scoreboard() {
     <div className="pe-page">
       <div className="q-head">
         <div>
-          <div className="pe-overline" style={{ color: "var(--coral-600)" }}>Engine impact · what it's producing for you</div>
+          <div className="pe-overline" style={{ color: "var(--coral-600)" }}>What the engine produced · watch, not work</div>
           <h2 style={{ margin: "6px 0 0" }}>Engine Impact</h2>
           <p style={{ margin: "8px 0 0", color: "var(--text-muted)", maxWidth: "70ch" }}>
             The value the engine is creating for your pipeline — perfect-fit companies found, added to your CRM, and worked into meetings and revenue.
