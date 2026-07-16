@@ -52,6 +52,8 @@ const SB_CSS = `
 .sb-added__t tr:last-child td{ border-bottom:none; }
 .sb-added__dom{ display:block; font-size:11px; color:var(--text-muted); }
 .sb-added__find{ font-size:11px; font-weight:700; padding:5px 10px; border-radius:99px; border:1px solid var(--coral-300); background:var(--coral-50); color:var(--coral-600); cursor:pointer; }
+.sb-added__find:disabled{ opacity:.6; cursor:default; }
+.sb-added__msg{ display:block; margin-top:5px; font-size:11px; color:var(--text-muted); white-space:normal; }
 `;
 (function(){ if(document.getElementById("sb-css"))return; const s=document.createElement("style"); s.id="sb-css"; s.textContent=SB_CSS; document.head.appendChild(s); })();
 
@@ -61,6 +63,8 @@ function Scoreboard() {
   const [d, setD] = useStateS(null);
   const [showAdded, setShowAdded] = useStateS(false);
   const [added, setAdded] = useStateS(null);
+  const [pursuing, setPursuing] = useStateS({});
+  const [pursueMsg, setPursueMsg] = useStateS({});
   useEffectS(() => { PES.fetchScoreboard().then(setD).catch(() => setD({})); }, []);
 
   if (!d) return <div className="pe-page"><p style={{ color: "var(--text-muted)" }}>Loading…</p></div>;
@@ -69,6 +73,24 @@ function Scoreboard() {
     setShowAdded((v) => !v);
     if (!added) PES.fetchAdded().then(setAdded);
   };
+
+  async function findPerson(domain) {
+    setPursuing((p) => ({ ...p, [domain]: true }));
+    setPursueMsg((m) => ({ ...m, [domain]: "" }));
+    try {
+      const res = await PES.pursueDomains([domain]);
+      const found = (res.pursued && res.pursued[0]) || {};
+      if (!res.apollo_configured) setPursueMsg((m) => ({ ...m, [domain]: "Apollo isn't configured yet (set APOLLO_API_KEY)." }));
+      else if (!(found.contacts || []).length) setPursueMsg((m) => ({ ...m, [domain]: "No decision-makers found." }));
+      else setPursueMsg((m) => ({ ...m, [domain]: `Found ${found.contacts.length} — refreshing…` }));
+      // refresh the list so contact_count updates and the button drops off once contacts exist
+      const fresh = await PES.fetchAdded(); setAdded(fresh);
+    } catch (e) {
+      setPursueMsg((m) => ({ ...m, [domain]: String(e.message || e) }));
+    } finally {
+      setPursuing((p) => { const n = { ...p }; delete n[domain]; return n; });
+    }
+  }
 
   const bands = d.by_band || {};
   const bandMax = Math.max(1, ...Object.values(bands));
@@ -127,10 +149,13 @@ function Scoreboard() {
                     <td>{r.name}<span className="sb-added__dom">{r.domain}</span></td>
                     <td>{r.claimed_at ? r.claimed_at.slice(0, 10) : "—"}</td>
                     <td>{r.owner_name || "—"}</td>
-                    <td>{r.contact_count}</td>
+                    <td>{r.contact_count ?? 0}</td>
                     <td>
                       {r.contact_count === 0 &&
-                        <button className="sb-added__find" onClick={() => PES.pursueDomains([r.domain])}>Find the person</button>}
+                        <button className="sb-added__find" disabled={!!pursuing[r.domain]} onClick={() => findPerson(r.domain)}>
+                          {pursuing[r.domain] ? "Finding…" : "Find the person"}
+                        </button>}
+                      {pursueMsg[r.domain] && <span className="sb-added__msg">{pursueMsg[r.domain]}</span>}
                     </td>
                   </tr>
                 ))}
