@@ -175,7 +175,7 @@ function MorningQueue({ onConfirmed, onError }) {
         onConfirmed && onConfirmed(1);
       } else {
         // Server pushed nothing for this firm — surface why instead of faking success.
-        onError && onError(new Error(r && r.reason ? r.reason : "Not claimed — nothing was pushed to HubSpot"));
+        onError && onError(new Error(r && r.reason ? r.reason : "Not worked — this firm wasn't moved into your pipeline"));
       }
     } catch (e) { onError && onError(e); }
     finally { setBusy((b) => { const n = { ...b }; delete n[domain]; return n; }); }
@@ -226,7 +226,7 @@ function MorningQueue({ onConfirmed, onError }) {
                   <div className="mq-sc"><div className="mq-sc__v">{Math.round(a.timing || 0)}</div><div className="mq-sc__k">timing</div></div>
                   <div className="mq-sc"><div className="mq-sc__v">{Math.round(a.total || 0)}</div><div className="mq-sc__k">score</div></div>
                   {isDone
-                    ? <div className="mq-done"><IcoQ.CheckCheck size={16} /> Pushed</div>
+                    ? <div className="mq-done"><IcoQ.CheckCheck size={16} /> Working</div>
                     : <BtnQ variant="primary" size="sm" icon={<IcoQ.Check size={14} />} disabled={!!busy[a.domain]} onClick={() => work(a.domain)}>{busy[a.domain] ? "Starting…" : "Confirm → work"}</BtnQ>}
                   <BtnQ variant="ghost" size="sm" onClick={() => setOpen((o) => ({ ...o, [a.domain]: !o[a.domain] }))}>{open[a.domain] ? "Close" : "Compose ▾"}</BtnQ>
                 </div>

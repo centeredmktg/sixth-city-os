@@ -96,7 +96,7 @@ function Scoreboard() {
         <div className="sb-stat">
           <div className="sb-stat__l"><IcoS.CircleCheck size={13} /> Added to CRM</div>
           <div className="sb-stat__v">{fmtS(d.in_crm)}</div>
-          <div className="sb-stat__note">Confirmed and pushed into HubSpot.</div>
+          <div className="sb-stat__note">Saved to HubSpot as engine-sourced.</div>
         </div>
       </div>
 
