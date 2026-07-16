@@ -79,6 +79,37 @@ class FailingFakeClient:
         return f"id-{account.domain}"
 
 
+def test_claim_job_commits_incrementally_across_chunks(monkeypatch):
+    """Seed more rows than one chunk (chunk size shrunk to 3 via monkeypatch), run
+    with a FakeClient, and assert ALL rows still get claimed (behavior preserved
+    across chunk boundaries). Also asserts session.commit() is called once per
+    chunk (not just once at the end) so progress is durable mid-drain."""
+    monkeypatch.setattr(claim, "_CHUNK", 3)
+    monkeypatch.setattr(claim, "_PACE_SEC", 0)
+
+    session = _session()
+    domains = [f"firm{i}.example" for i in range(10)]
+    for d in domains:
+        _seed(session, d)
+
+    commit_calls = {"count": 0}
+    orig_commit = session.commit
+    def counting_commit():
+        commit_calls["count"] += 1
+        return orig_commit()
+    monkeypatch.setattr(session, "commit", counting_commit)
+
+    fake = FakeClient()
+    res = claim.run(session, client=fake, owner_id="555")
+
+    assert res["claimed"] == 10
+    assert set(fake.calls) == set(domains)
+    for d in domains:
+        assert session.get(AccountRow, d).claimed is True
+    # 10 rows / chunk size 3 -> 4 chunks -> 4 commits
+    assert commit_calls["count"] == 4
+
+
 def test_claim_job_failure_isolation():
     """One firm's failure must not abort the batch; failed row must not be marked claimed."""
     session = _session()

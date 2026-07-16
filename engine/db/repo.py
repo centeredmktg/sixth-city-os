@@ -107,7 +107,8 @@ def get_candidates(session: Session) -> list[Account]:
     """Net-new unpushed firms, ranked best-first — the triage queue. We surface the
     WHOLE sorted list (dump-and-sort), not just closer-bound: routing is a badge +
     sort hint, not a gate. The operator works top-down and picks what to push.
-    (The DB only ever holds net-new firms; ingest filters the book out before writing.)"""
+    (The DB holds both net-new and in-book firms; in-book rows carry net_new=False
+    and are shown flagged, not filtered out.)"""
     rows = session.query(AccountRow).filter(AccountRow.pushed.is_(False)).all()
     accounts = [_account_from_row(r) for r in rows]
     accounts.sort(key=lambda a: (a.score.total if a.score else 0.0), reverse=True)

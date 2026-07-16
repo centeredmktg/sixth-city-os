@@ -212,17 +212,43 @@ class HubSpotClient:
         print(f"  [claimed] {account.domain} -> id {new_id} | machine_sourced=true owner={owner_id}")
         return new_id
 
+    def _find_company_ours(self, domain: str) -> tuple[str | None, bool]:
+        """Like find_company_id_by_domain, but also reads back machine_sourced so
+        callers can tell 'ours' (engine-claimed) apart from John's pre-existing book.
+        Returns (id_or_None, is_ours). Dry mode -> (None, False)."""
+        if self._dry:
+            return None, False
+        body = {
+            "filterGroups": [{"filters": [
+                {"propertyName": "domain", "operator": "EQ", "value": domain},
+            ]}],
+            "properties": ["domain", MACHINE_SOURCED_PROPERTY],
+            "limit": 1,
+        }
+        results = self._post("/crm/v3/objects/companies/search", body).get("results", [])
+        if not results:
+            return None, False
+        company = results[0]
+        is_ours = (company.get("properties", {}) or {}).get(MACHINE_SOURCED_PROPERTY) == "true"
+        return company["id"], is_ours
+
     def promote_to_working(self, account: Account, owner_id: str) -> str | None:
         """Operator confirmed a discovery -> mark it working (moves it into the team's
-        active views). If it's already in HubSpot, PATCH engine_status=working. If it's
+        active views). If it's already in HubSpot AND it's ours (machine_sourced), PATCH
+        engine_status=working. If it's in HubSpot but NOT ours (John's book — e.g. a
+        domain that was net-new at ingest but his team added it before the operator
+        confirmed), never write — return the existing id untouched (SLA guard). If it's
         not claimed yet (auto-claim off or still draining), claim it straight to working
         so a fast operator is never blocked. Owner required on create."""
         if self._dry:
             print(f"  [DRY] would promote {account.domain} -> {ENGINE_STATUS_PROPERTY}=working")
             return f"dry-{account.domain}"
 
-        existing = self.find_company_id_by_domain(account.domain)
+        existing, is_ours = self._find_company_ours(account.domain)
         if existing:
+            if not is_ours:
+                print(f"  [skip] {account.domain} in book but not engine-sourced — not promoted")
+                return existing
             self._patch(f"/crm/v3/objects/companies/{existing}",
                         {"properties": {ENGINE_STATUS_PROPERTY: "working"}})
             print(f"  [working] {account.domain} (id {existing}) -> engine_status=working")
