@@ -175,6 +175,11 @@ async function fetchScoreboard() {
   return r.json();
 }
 
+async function fetchAdded() {
+  const r = await fetch("/api/added");
+  return r.json();   // { added: [...], total }
+}
+
 /* Commit to an opportunity -> find & enrich the decision-makers (Apollo). */
 async function pursueDomains(domains) {
   const r = await fetch("/api/pursue", {
@@ -247,7 +252,7 @@ async function sendMessage(id) {
 Object.assign(window.PE, {
   Vertical, SignalKind, RUN, STAGES, STATUS, ROLE,
   ACTIVE_SOURCES, ONDECK_SOURCES, STREAM,
-  siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, pushDomains, fetchScoreboard,
+  siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, pushDomains, fetchScoreboard, fetchAdded,
   pursueDomains, fetchContacts, composeMessage, editMessage, sendMessage, LAST_INGEST: null,
   ops: { name: "John Sammon", title: "Owner / Sixth City" },
   danny: { name: "Danny Cox", title: "Pipeline Ops" },

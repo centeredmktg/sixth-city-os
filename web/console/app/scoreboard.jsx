@@ -43,6 +43,15 @@ const SB_CSS = `
 .sb-out__d{ font-size:11px; color:var(--text-muted); margin-top:2px; }
 .sb-out__v{ margin-left:auto; font-family:var(--font-condensed); font-weight:800; font-size:26px; color:var(--text-strong); }
 .sb-out__v.pend{ font-size:13px; font-weight:700; color:var(--text-subtle); font-family:var(--font-mono); }
+.sb-stat--click{ cursor:pointer; }
+.sb-added{ margin:-6px 0 20px; background:var(--surface-card); border:1px solid var(--border-subtle); border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); overflow-x:auto; }
+.sb-added__loading{ padding:16px 18px; font-size:13px; color:var(--text-muted); }
+.sb-added__t{ width:100%; border-collapse:collapse; font-size:13px; }
+.sb-added__t th{ text-align:left; font-family:var(--font-condensed); text-transform:uppercase; letter-spacing:.08em; font-size:10px; font-weight:700; color:var(--text-subtle); padding:10px 14px; border-bottom:1px solid var(--border-subtle); white-space:nowrap; }
+.sb-added__t td{ padding:9px 14px; border-bottom:1px solid var(--border-subtle); color:var(--text-body); white-space:nowrap; }
+.sb-added__t tr:last-child td{ border-bottom:none; }
+.sb-added__dom{ display:block; font-size:11px; color:var(--text-muted); }
+.sb-added__find{ font-size:11px; font-weight:700; padding:5px 10px; border-radius:99px; border:1px solid var(--coral-300); background:var(--coral-50); color:var(--coral-600); cursor:pointer; }
 `;
 (function(){ if(document.getElementById("sb-css"))return; const s=document.createElement("style"); s.id="sb-css"; s.textContent=SB_CSS; document.head.appendChild(s); })();
 
@@ -50,9 +59,16 @@ const fmtS = (n) => (n == null ? "—" : n.toLocaleString("en-US"));
 
 function Scoreboard() {
   const [d, setD] = useStateS(null);
+  const [showAdded, setShowAdded] = useStateS(false);
+  const [added, setAdded] = useStateS(null);
   useEffectS(() => { PES.fetchScoreboard().then(setD).catch(() => setD({})); }, []);
 
   if (!d) return <div className="pe-page"><p style={{ color: "var(--text-muted)" }}>Loading…</p></div>;
+
+  const openAdded = () => {
+    setShowAdded((v) => !v);
+    if (!added) PES.fetchAdded().then(setAdded);
+  };
 
   const bands = d.by_band || {};
   const bandMax = Math.max(1, ...Object.values(bands));
@@ -93,12 +109,36 @@ function Scoreboard() {
           <div className="sb-stat__v">{fmtS(d.net_new)}</div>
           <div className="sb-stat__note">Not already in your CRM — fresh prospects.</div>
         </div>
-        <div className="sb-stat">
+        <div className="sb-stat sb-stat--click" onClick={openAdded}>
           <div className="sb-stat__l"><IcoS.CircleCheck size={13} /> Added to CRM</div>
           <div className="sb-stat__v">{fmtS(d.in_crm)}</div>
-          <div className="sb-stat__note">Saved to HubSpot as engine-sourced.</div>
+          <div className="sb-stat__note">Saved to HubSpot as engine-sourced. Click to view.</div>
         </div>
       </div>
+
+      {showAdded && (
+        <div className="sb-added">
+          {!added ? <div className="sb-added__loading">Loading…</div> : (
+            <table className="sb-added__t">
+              <thead><tr><th>Company</th><th>Added</th><th>Owner</th><th>Contacts</th><th></th></tr></thead>
+              <tbody>
+                {added.added.map((r) => (
+                  <tr key={r.domain}>
+                    <td>{r.name}<span className="sb-added__dom">{r.domain}</span></td>
+                    <td>{r.claimed_at ? r.claimed_at.slice(0, 10) : "—"}</td>
+                    <td>{r.owner_name || "—"}</td>
+                    <td>{r.contact_count}</td>
+                    <td>
+                      {r.contact_count === 0 &&
+                        <button className="sb-added__find" onClick={() => PES.pursueDomains([r.domain])}>Find the person</button>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       <div className="sb-grid">
         <div className="sb-card">
