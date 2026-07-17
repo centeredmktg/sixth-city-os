@@ -30,6 +30,8 @@ class AccountRow(Base):
     hubspot_id: Mapped[str | None] = mapped_column(String, nullable=True)
     pushed: Mapped[bool] = mapped_column(Boolean, default=False)
     enriched: Mapped[bool] = mapped_column(Boolean, default=False)
+    claimed: Mapped[bool] = mapped_column(Boolean, default=False)  # auto-claim pushed it to HubSpot
+    claimed_at: Mapped["datetime | None"] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
     net_new: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
     pursued: Mapped[bool] = mapped_column(Boolean, default=False)   # operator committed -> contacts sourced
     places_enriched: Mapped[bool] = mapped_column(Boolean, default=False)  # Places 2nd pass done

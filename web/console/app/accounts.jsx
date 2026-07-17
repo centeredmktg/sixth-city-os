@@ -262,7 +262,7 @@ function AccountsScreen() {
           <div className="pe-overline" style={{ color: "var(--coral-600)" }}>The book · every scored account</div>
           <h2 style={{ margin: "6px 0 0" }}>Accounts</h2>
           <p style={{ margin: "8px 0 0", color: "var(--text-muted)", maxWidth: "66ch" }}>
-            Every firm the engine has scored — click any row for its full evidence trail: why it scored, the signals behind it, and where it's routed.
+            Look up any company — {all.length} in your book. Click any row for its full evidence trail: why it scored, the signals behind it, and where it's routed.
           </p>
         </div>
       </div>

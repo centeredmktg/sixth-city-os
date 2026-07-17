@@ -46,6 +46,8 @@ const SC_CSS = `
 .sc-errs{ margin:10px 0 0; padding:11px 14px; background:var(--coral-50); border:1px solid var(--coral-200); border-radius:var(--radius-sm); color:var(--coral-700); font-size:12px; }
 .sc-errs li{ margin:2px 0; }
 .sc-saved{ font-size:12px; color:var(--green-600); font-weight:700; }
+.sc-select{ flex:1; max-width:320px; padding:7px 9px; border:1px solid var(--border-subtle); border-radius:var(--radius-sm); font-size:13px; background:var(--surface-base); color:var(--text-strong); }
+.sc-owner-note{ margin:0 0 12px; font-size:12px; color:var(--text-subtle); }
 `;
 (function(){ if(document.getElementById("sc-css"))return; const s=document.createElement("style"); s.id="sc-css"; s.textContent=SC_CSS; document.head.appendChild(s); })();
 
@@ -72,9 +74,28 @@ function ScoringScreen() {
   const [savedMsg, setSavedMsg] = useStateSC("");
   const tRef = useRefSC(null);
 
+  const [owners, setOwners] = useStateSC([]);
+  const [defaultOwner, setDefaultOwner] = useStateSC("");
+  const [ownerSaving, setOwnerSaving] = useStateSC(false);
+  const [ownerSaved, setOwnerSaved] = useStateSC(false);
+
   useEffectSC(() => {
     fetch("/api/scoring-config").then((r) => r.json()).then((j) => { setCfg(j.config); setDefaults(j.defaults); });
   }, []);
+
+  useEffectSC(() => {
+    fetch("/api/owners").then((r) => r.json()).then((j) => setOwners(j.owners || []));
+    fetch("/api/owner-config").then((r) => r.json()).then((j) => setDefaultOwner(j.default_owner_id || ""));
+  }, []);
+
+  const saveOwner = () => {
+    setOwnerSaving(true); setOwnerSaved(false);
+    fetch("/api/owner-config", {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ owner_id: defaultOwner }),
+    }).then((r) => r.json().then((j) => ({ ok: r.ok, j })))
+      .then(({ ok }) => { if (ok) setOwnerSaved(true); })
+      .finally(() => setOwnerSaving(false));
+  };
 
   // Debounced live preview — re-scores in memory server-side, persists nothing.
   useEffectSC(() => {
@@ -132,6 +153,27 @@ function ScoringScreen() {
 
       <div className="sc-wrap">
         <div>
+          {/* Ownership */}
+          <div className="sc-group">
+            <div className="sc-group__h"><IcoSC.Briefcase size={16} style={{ color: "var(--coral-500)" }} /><h4>Ownership</h4></div>
+            <div className="sc-group__b">
+              <p className="sc-owner-note">Every company the engine adds to HubSpot is assigned to this person. Required — nothing is created unassigned.</p>
+              <div className="sc-row">
+                <span className="sc-row__k">Default owner</span>
+                <select className="sc-select" value={defaultOwner}
+                  onChange={(e) => { setDefaultOwner(e.target.value); setOwnerSaved(false); }}>
+                  <option value="">— select —</option>
+                  {owners.map((o) => <option key={o.id} value={o.id}>{o.name || o.email}</option>)}
+                </select>
+              </div>
+              <div className="sc-actions">
+                <button className="sc-btn sc-btn--primary" onClick={saveOwner} disabled={!defaultOwner || ownerSaving}>
+                  {ownerSaving ? "Saving…" : ownerSaved ? "Saved ✓" : "Save owner"}
+                </button>
+              </div>
+            </div>
+          </div>
+
           {/* Balance */}
           <div className="sc-group">
             <div className="sc-group__h"><IcoSC.Scale size={16} style={{ color: "var(--coral-500)" }} /><h4>Fit vs Timing balance</h4></div>

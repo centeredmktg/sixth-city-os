@@ -144,10 +144,10 @@ function TriageBoard({ onConfirmed, onError }) {
       <div className="q-head">
         <div>
           <div className="tg-overline">Human-in-the-loop · confirm or override routing</div>
-          <h2 style={{ margin: "6px 0 0" }}>{awaiting.length} to confirm before anything acts</h2>
+          <h2 style={{ margin: "6px 0 0" }}>Sort the pile — {awaiting.length} to confirm</h2>
           <p style={{ margin: "8px 0 0", color: "var(--text-muted)", maxWidth: "70ch" }}>
             Nothing enters a closer sequence unconfirmed. The engine recommends; you confirm the obvious in
-            bulk and single out the judgment calls. Confirming a Closer pushes it into HubSpot.
+            bulk and single out the judgment calls. Confirming an LFG moves it into your active pipeline. (It's already saved as engine-sourced — this is your decision to work it.)
           </p>
         </div>
       </div>
@@ -206,7 +206,7 @@ function TriageBoard({ onConfirmed, onError }) {
 
                     <div className="tg-act">
                       {done ? (
-                        <div className="tg-done"><IcoT.CheckCheck size={16} /> Pushed to HubSpot</div>
+                        <div className="tg-done"><IcoT.CheckCheck size={16} /> In your active pipeline</div>
                       ) : (
                         <React.Fragment>
                           <div className="tg-seg">
@@ -216,7 +216,7 @@ function TriageBoard({ onConfirmed, onError }) {
                           </div>
                           {r === "closer"
                             ? <BtnT variant="primary" size="sm" icon={<IcoT.Check size={14} />} disabled={!!busy[a.domain]} onClick={() => confirm([a.domain])}>{busy[a.domain] ? "Pushing…" : "Confirm LFG"}</BtnT>
-                            : <span style={{ fontSize: 11, color: "var(--text-subtle)" }}>{r === "reject" ? "won't be worked" : "marketing track — no push"}</span>}
+                            : <span style={{ fontSize: 11, color: "var(--text-subtle)" }}>{r === "reject" ? "won't be worked" : "marketing track — not worked"}</span>}
                         </React.Fragment>
                       )}
                     </div>

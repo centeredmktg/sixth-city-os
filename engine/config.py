@@ -58,5 +58,12 @@ class Config:
             return True
         return not self.hubspot_token
 
+    @property
+    def auto_claim_enabled(self) -> bool:
+        """Gates the /api/ingest -> claim job auto-trigger (default OFF). A live env
+        read (not an import-time field) so it's toggleable per-request in tests via
+        monkeypatch.setenv or by patching the class property directly."""
+        return os.getenv("AUTO_CLAIM_ENABLED", "").strip().lower() in ("1", "true", "yes", "on")
+
 
 CONFIG = Config()

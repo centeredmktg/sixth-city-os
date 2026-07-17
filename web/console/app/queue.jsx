@@ -175,7 +175,7 @@ function MorningQueue({ onConfirmed, onError }) {
         onConfirmed && onConfirmed(1);
       } else {
         // Server pushed nothing for this firm — surface why instead of faking success.
-        onError && onError(new Error(r && r.reason ? r.reason : "Not claimed — nothing was pushed to HubSpot"));
+        onError && onError(new Error(r && r.reason ? r.reason : "Not worked — this firm wasn't moved into your pipeline"));
       }
     } catch (e) { onError && onError(e); }
     finally { setBusy((b) => { const n = { ...b }; delete n[domain]; return n; }); }
@@ -188,7 +188,7 @@ function MorningQueue({ onConfirmed, onError }) {
           <div className="pe-overline" style={{ color: "var(--coral-600)" }}>Start here · today's highest-priority to work</div>
           <h2 style={{ margin: "6px 0 0" }}>Morning Queue</h2>
           <p style={{ margin: "8px 0 0", color: "var(--text-muted)", maxWidth: "68ch" }}>
-            The shortlist that matters today — net-new, in-market-now, closer-bound prospects ranked best-first. Work the top down; confirming pushes the firm into HubSpot.
+            The shortlist that matters today — a filtered slice of the Triage Board: only net-new, in-market-now, closer-worthy prospects, ranked best-first. Work the top down.
           </p>
         </div>
       </div>
@@ -226,8 +226,8 @@ function MorningQueue({ onConfirmed, onError }) {
                   <div className="mq-sc"><div className="mq-sc__v">{Math.round(a.timing || 0)}</div><div className="mq-sc__k">timing</div></div>
                   <div className="mq-sc"><div className="mq-sc__v">{Math.round(a.total || 0)}</div><div className="mq-sc__k">score</div></div>
                   {isDone
-                    ? <div className="mq-done"><IcoQ.CheckCheck size={16} /> Pushed</div>
-                    : <BtnQ variant="primary" size="sm" icon={<IcoQ.Check size={14} />} disabled={!!busy[a.domain]} onClick={() => work(a.domain)}>{busy[a.domain] ? "Pushing…" : "Confirm → push"}</BtnQ>}
+                    ? <div className="mq-done"><IcoQ.CheckCheck size={16} /> Working</div>
+                    : <BtnQ variant="primary" size="sm" icon={<IcoQ.Check size={14} />} disabled={!!busy[a.domain]} onClick={() => work(a.domain)}>{busy[a.domain] ? "Starting…" : "Confirm → work"}</BtnQ>}
                   <BtnQ variant="ghost" size="sm" onClick={() => setOpen((o) => ({ ...o, [a.domain]: !o[a.domain] }))}>{open[a.domain] ? "Close" : "Compose ▾"}</BtnQ>
                 </div>
               </div>

@@ -13,6 +13,7 @@ from engine.db.models import SettingRow
 from engine.scoring.config import ScoringConfig, DEFAULT_CONFIG
 
 SCORING_KEY = "scoring_config"
+OWNER_KEY = "default_owner_id"
 
 
 def load_scoring_config(session: Session) -> ScoringConfig:
@@ -34,4 +35,23 @@ def save_scoring_config(session: Session, cfg: ScoringConfig) -> None:
         session.add(SettingRow(key=SCORING_KEY, value=cfg.to_dict()))
     else:
         row.value = cfg.to_dict()
+    session.commit()
+
+
+def load_default_owner_id(session: Session) -> str | None:
+    """The team-wide default HubSpot owner id, or None if unset."""
+    row = session.get(SettingRow, OWNER_KEY)
+    if row is None or not isinstance(row.value, dict):
+        return None
+    oid = row.value.get("id")
+    return str(oid) if oid else None
+
+
+def save_default_owner_id(session: Session, owner_id: str) -> None:
+    """Upsert the team-wide default HubSpot owner id."""
+    row = session.get(SettingRow, OWNER_KEY)
+    if row is None:
+        session.add(SettingRow(key=OWNER_KEY, value={"id": str(owner_id)}))
+    else:
+        row.value = {"id": str(owner_id)}
     session.commit()

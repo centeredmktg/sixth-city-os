@@ -12,13 +12,14 @@ import os
 import threading
 from datetime import datetime, timezone
 
-from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import BackgroundTasks, Depends, FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy.orm import selectinload
 
 from engine.attribution import dashboard
+from engine.config import CONFIG
 from engine.db import repo
 from engine.db.base import make_engine, create_all, make_session_factory
 from engine.db.auto_migrate import run_startup_migrations
@@ -29,9 +30,9 @@ from engine.gmail import tokens as gmail_tokens
 from engine.models import Message, MessageStatus
 from engine.hubspot.client import HubSpotClient
 from engine.jobs import find_accounts, score_accounts, route_accounts
+from engine.jobs import claim
 from engine.jobs import enrich as enrich_job
 from engine.jobs import enrich_places
-from engine.jobs import push_to_hubspot
 from engine.jobs.rescore import rescore_all
 from engine.modules import draft_cold_email
 from engine.models import Route, Stage
@@ -50,6 +51,10 @@ class PushRequest(BaseModel):
     # Applied as the confirmed override so the push job claims it; without this the
     # server reads the stored recommendation (often "nurture") and silently no-ops.
     route: str | None = None
+
+
+class OwnerConfig(BaseModel):
+    owner_id: str
 
 
 class RevalidateStaticFiles(StaticFiles):
@@ -101,6 +106,16 @@ def db_session():
         s.close()
 
 
+def _claim_in_background(limit: int | None = None):
+    """Runs the claim job on its OWN session — the request session (db_session) is
+    already closed by the time a fire-and-forget BackgroundTasks callback runs."""
+    session = _SessionLocal()
+    try:
+        claim.run(session, limit=limit)
+    finally:
+        session.close()
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
@@ -111,7 +126,8 @@ def health():
 
 
 @app.post("/api/ingest")
-async def ingest(file: UploadFile = File(...), session=Depends(db_session)):
+async def ingest(file: UploadFile = File(...), background_tasks: BackgroundTasks = None,
+                 session=Depends(db_session)):
     raw = (await file.read()).decode("utf-8")
     rows = list(csvmod.DictReader(io.StringIO(raw)))
     if not has_domain_column(rows):
@@ -134,6 +150,11 @@ async def ingest(file: UploadFile = File(...), session=Depends(db_session)):
         a.net_new = (a.domain.strip().lower() not in existing) if a.domain else None
 
     repo.upsert_accounts(session, routed)
+
+    # Auto-claim: fire-and-forget so a big list doesn't block the upload response.
+    # Flag-gated (default OFF) — turning it on is a deliberate prod step.
+    if CONFIG.auto_claim_enabled and background_tasks is not None:
+        background_tasks.add_task(_claim_in_background)
 
     return {
         "ingested": len(rows),
@@ -220,7 +241,7 @@ def scoreboard(session=Depends(db_session)):
     by_band = {b: sum(1 for r in rows if (r.band or "") == b) for b in ("A", "B", "C", "R")}
     net_new = sum(1 for r in rows if r.net_new is True)
     perfect_fit = sum(1 for r in rows if (r.band or "") == "A" and r.net_new is True)
-    in_crm = sum(1 for r in rows if r.pushed)
+    in_crm = sum(1 for r in rows if r.claimed)   # "Added to CRM" = auto-claimed, not worked
     by_vertical = {}
     for r in rows:
         by_vertical[r.vertical] = by_vertical.get(r.vertical, 0) + 1
@@ -242,6 +263,31 @@ def scoreboard(session=Depends(db_session)):
     }
 
 
+@app.get("/api/added")
+def added(session=Depends(db_session), limit: int = 200):
+    """The claimed companies behind the scoreboard's "Added to CRM" count — sourced
+    from the SAME claimed query as `scoreboard.in_crm`, so the count and list can
+    never disagree. Newest-claimed first (nulls last, e.g. pre-Task-5 rows)."""
+    rows = (session.query(AccountRow)
+            .filter(AccountRow.claimed.is_(True))
+            .order_by(AccountRow.claimed_at.desc().nullslast())
+            .all())
+    total = len(rows)
+    owner_names = {o["id"]: o["name"] for o in HubSpotClient().list_owners()}
+    default_owner = owner_names.get(settings_repo.load_default_owner_id(session), "")
+    out = []
+    for r in rows[:limit]:
+        out.append({
+            "domain": r.domain,
+            "name": r.name,
+            "claimed_at": r.claimed_at.isoformat() if r.claimed_at else None,
+            "owner_name": default_owner,   # single team default today; per-record owner later
+            "contact_count": len(repo.get_contacts(session, r.domain)),
+            "engine_status": "working" if r.pushed else "discovered",
+        })
+    return {"added": out, "total": total}
+
+
 @app.post("/api/enrich")
 def enrich(limit: int = 20, session=Depends(db_session)):
     """Run one chunk of free enrichment (site audit + domain age + PageSpeed) over
@@ -260,8 +306,27 @@ def enrich_places_pass(limit: int = 50, session=Depends(db_session)):
     return enrich_places.run(session, limit=limit)
 
 
+@app.post("/api/claim")
+def claim_endpoint(limit: int = None, session=Depends(db_session)):
+    """Manual/cron drain of the auto-claim job — idempotent (claim.run only touches
+    net-new, not-yet-claimed, not-yet-pushed rows), so re-running or overlapping with
+    the ingest-triggered background task is safe."""
+    return claim.run(session, limit=limit)
+
+
 @app.post("/api/push")
 def push(req: PushRequest, session=Depends(db_session)):
+    """Confirm = PROMOTE, not create. The company is already in HubSpot by the time an
+    operator confirms (CLAIM happened at discovery) — this just flips engine_status
+    discovered -> working for the routes the team actually works (closer). A route
+    gate still applies here: promoting every selected domain regardless of route would
+    silently pull nurture firms into active work. Requires a default owner (Settings)
+    so a not-yet-claimed domain can still be promoted straight to working."""
+    owner_id = settings_repo.load_default_owner_id(session)
+    if not owner_id:
+        raise HTTPException(status_code=400,
+                            detail="Set a default owner (Settings) before working accounts.")
+
     selected = {a.domain: a for a in repo.get_candidates(session)
                 if a.domain in set(req.domains)}
 
@@ -273,40 +338,34 @@ def push(req: PushRequest, session=Depends(db_session)):
             raise HTTPException(status_code=400, detail=f"unknown route {req.route!r}")
 
     # Confirm the HITL gate for the operator-selected firms, applying their elected
-    # route as the override, then run the push job (which re-validates net-new by
-    # domain at claim time as the SLA guard).
+    # route as the override.
     for a in selected.values():
         a.route.confirmed = True
         a.route.confirmed_by = "operator"
         if override is not None:
             a.route.confirmed_route = override
 
-    pushed_by_domain = {a.domain: a for a in push_to_hubspot.run(list(selected.values()))}
-
-    # Honest per-domain outcome — the UI marks a row "Pushed" ONLY on "claimed", and
-    # surfaces the reason otherwise (so a silent no-op can't read as success).
+    client = HubSpotClient()
     results = []
     claimed = 0
     for dom, a in selected.items():
-        p = pushed_by_domain.get(dom)
-        if p is not None and getattr(p, "claimed", bool(p.hubspot_id)) \
-                and p.hubspot_id and not p.hubspot_id.startswith("dry-"):
-            repo.mark_pushed(session, dom, p.hubspot_id)
-            claimed += 1
-            results.append({"domain": dom, "status": "claimed", "hubspot_id": p.hubspot_id})
-        elif p is not None and getattr(p, "claimed", True):
-            # Reached the claim and "succeeded" but not persistable (dry run) — treat
-            # as claimed for the UI flow; nothing was written to the DB or CRM.
-            results.append({"domain": dom, "status": "claimed", "hubspot_id": p.hubspot_id})
-        elif p is not None:
-            results.append({"domain": dom, "status": "exists", "hubspot_id": p.hubspot_id,
-                            "reason": "already in HubSpot — not claimed"})
-        elif a.route.effective != Route.CLOSER:
+        if a.route.effective != Route.CLOSER:
             results.append({"domain": dom, "status": "skipped",
-                            "reason": f"routed {a.route.effective.value} — only LFG/closer is claimed"})
+                            "reason": f"routed {a.route.effective.value} — only LFG/closer is worked"})
+            continue
+        try:
+            hid = client.promote_to_working(a, owner_id=owner_id)
+        except Exception as e:
+            results.append({"domain": dom, "status": "error", "reason": str(e)})
+            continue
+        if hid and not str(hid).startswith("dry-"):
+            repo.mark_pushed(session, dom, hid)
+            claimed += 1
+            results.append({"domain": dom, "status": "claimed", "hubspot_id": hid})
+        elif hid:  # dry-mode id — claimed for the UI flow, nothing persisted
+            results.append({"domain": dom, "status": "claimed", "hubspot_id": hid})
         else:
-            results.append({"domain": dom, "status": "exists",
-                            "reason": "already in HubSpot — not claimed"})
+            results.append({"domain": dom, "status": "error", "reason": "promote returned no id"})
 
     return {"results": results, "claimed": claimed, "count": claimed,
             "pushed": [r for r in results if r["status"] == "claimed"],
@@ -498,6 +557,30 @@ def preview_scoring_config(body: dict, session=Depends(db_session)):
     cfg = _config_from_body(body)
     return {"bands": _band_distribution(session, cfg),
             "total": session.query(AccountRow).count()}
+
+
+# --- Owner config: default owner for unclaimed promotions ---
+
+
+@app.get("/api/owners")
+def owners():
+    """List available owners from HubSpot for the dropdown."""
+    return {"owners": HubSpotClient().list_owners()}
+
+
+@app.get("/api/owner-config")
+def get_owner_config(session=Depends(db_session)):
+    """Get the default owner ID for claiming firms."""
+    return {"default_owner_id": settings_repo.load_default_owner_id(session)}
+
+
+@app.put("/api/owner-config")
+def put_owner_config(cfg: OwnerConfig, session=Depends(db_session)):
+    """Set the default owner ID. Rejects blank owner_id."""
+    if not cfg.owner_id.strip():
+        raise HTTPException(status_code=400, detail="owner_id is required")
+    settings_repo.save_default_owner_id(session, cfg.owner_id.strip())
+    return {"default_owner_id": cfg.owner_id.strip()}
 
 
 # SPA deep-link routes: each nav item has a real URL (bookmarkable, refresh-safe,
