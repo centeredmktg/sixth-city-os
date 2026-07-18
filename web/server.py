@@ -35,6 +35,7 @@ from engine.jobs import enrich as enrich_job
 from engine.jobs import enrich_places
 from engine.jobs.rescore import rescore_all
 from engine.modules import draft_cold_email
+from engine.modules import hubspot_links
 from engine.models import Route, Stage
 from engine import routing
 from engine.scoring import abcr
@@ -210,6 +211,10 @@ def candidates(session=Depends(db_session), limit: int = 250):
             "band": a.score.band if a.score else "R",
             "net_new": a.net_new,
             "stage": a.stage.value if a.stage else None,
+            "hubspot_id": a.hubspot_id,
+            # Company-record link — every claimed company has an id; the person view
+            # uses this as the enroll fallback when a contact isn't in HubSpot yet.
+            "hubspot_url": hubspot_links.record_url(company_hubspot_id=a.hubspot_id),
             "score_rationale": a.score.rationale if a.score else "",
             "route_confirmed": bool(a.route and a.route.confirmed),
             "pursued": a.pursued,
@@ -373,8 +378,13 @@ def push(req: PushRequest, session=Depends(db_session)):
 
 
 def _contact_dict(c) -> dict:
+    cid = getattr(c, "hubspot_id", "") or ""
     return {"name": c.name, "title": c.title, "email": c.email,
-            "linkedin_url": c.linkedin_url, "seniority": c.seniority}
+            "linkedin_url": c.linkedin_url, "seniority": c.seniority,
+            "hubspot_id": cid,
+            # Contact-record link only when the person is in HubSpot; else the UI falls
+            # back to the company link. Enroll is manual (the API path is gated).
+            "hubspot_url": hubspot_links.record_url(contact_hubspot_id=cid)}
 
 
 @app.post("/api/pursue")
