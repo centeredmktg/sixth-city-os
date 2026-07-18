@@ -210,16 +210,21 @@ function AccountDetail({ a, onBack }) {
               ) : contacts.length === 0 ? (
                 <p style={{ fontSize: 12, color: "var(--text-muted)" }}>Pursued — no contacts on file.</p>
               ) : (
-                contacts.map((c, i) => (
+                contacts.map((c, i) => {
+                  const enrollUrl = c.hubspot_url || a.hubspot_url;   // contact record, else company fallback
+                  return (
                   <div className="ac-contact" key={i}>
                     <div className="ac-contact__nm">{c.name}</div>
                     <div className="ac-contact__ti">{c.title}{c.seniority ? " · " + c.seniority : ""}</div>
                     <div className="ac-contact__c">
                       {c.email ? <a href={"mailto:" + c.email}>{c.email}</a> : <span style={{ color: "var(--text-subtle)" }}>email locked</span>}
                       {c.linkedin_url && <React.Fragment> · <a href={c.linkedin_url} target="_blank" rel="noreferrer">LinkedIn</a></React.Fragment>}
+                      {enrollUrl && <React.Fragment> · <a href={enrollUrl} target="_blank" rel="noreferrer"
+                        title="Opens the record in HubSpot — click Enroll to add to a follow-up sequence">Enroll in HubSpot →</a></React.Fragment>}
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
               {err && <div style={{ fontSize: 11, color: "var(--danger)", marginTop: 10 }}>{err}</div>}
             </div>
