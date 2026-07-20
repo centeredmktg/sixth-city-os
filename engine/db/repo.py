@@ -23,6 +23,7 @@ def _row_from_account(a: Account) -> AccountRow:
         pushed=a.stage == Stage.PUSHED, net_new=a.net_new, pursued=a.pursued,
         claimed=getattr(a, "claimed", False),
         claimed_at=getattr(a, "claimed_at", None),
+        context_hash=getattr(a, "context_hash", None),
     )
     if a.score:
         row.fit = a.score.fit
@@ -71,6 +72,7 @@ def _account_from_row(row: AccountRow) -> Account:
     )
     a.__dict__["claimed"] = bool(row.claimed)
     a.__dict__["claimed_at"] = row.claimed_at
+    a.__dict__["context_hash"] = row.context_hash
     return a
 
 
@@ -88,6 +90,7 @@ def upsert_accounts(session: Session, accounts: list[Account]) -> None:
             new_row.pushed = existing.pushed or new_row.pushed
             new_row.claimed = existing.claimed or new_row.claimed
             new_row.claimed_at = existing.claimed_at or new_row.claimed_at
+            new_row.context_hash = existing.context_hash or new_row.context_hash
             new_row.hubspot_id = existing.hubspot_id or new_row.hubspot_id
             # Preserve the pursued state + sourced contacts so a re-ingest never wipes
             # decision-makers we already paid Apollo to find.
@@ -122,6 +125,14 @@ def mark_pushed(session: Session, domain: str, hubspot_id: str) -> None:
         row.pushed = True
         row.hubspot_id = hubspot_id
         row.stage = Stage.PUSHED.value
+        session.commit()
+
+
+def set_context_hash(session: Session, domain: str, context_hash: str) -> None:
+    """Record the context we last synced to HubSpot, so an unchanged row isn't re-pushed."""
+    row = session.get(AccountRow, domain)
+    if row is not None:
+        row.context_hash = context_hash
         session.commit()
 
 
