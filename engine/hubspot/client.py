@@ -21,6 +21,7 @@ import requests
 
 from engine.config import CONFIG
 from engine.models import Account, Attribution, Outreach
+from engine.modules import hubspot_context
 
 
 API = "https://api.hubapi.com"
@@ -206,11 +207,26 @@ class HubSpotClient:
             SOURCE_PROVENANCE_PROPERTY: account.discovered_by,
             MACHINE_SOURCED_DATE_PROPERTY: date.today().isoformat(),
             ENGINE_STATUS_PROPERTY: "discovered",
+            **hubspot_context.context_properties(account),
             "hubspot_owner_id": owner_id,
         }})
         new_id = created["id"]
         print(f"  [claimed] {account.domain} -> id {new_id} | machine_sourced=true owner={owner_id}")
         return new_id
+
+    def update_context(self, company_id: str, props: dict) -> bool:
+        """PATCH the engine_* context properties onto a company we claimed. Dry mode
+        writes nothing (returns False); any error degrades to False — never raises, so
+        one firm can't abort a sync batch. True only on a real successful write."""
+        if self._dry:
+            print(f"  [DRY] would update context on {company_id}: {props}")
+            return False
+        try:
+            self._patch(f"/crm/v3/objects/companies/{company_id}", {"properties": props})
+            return True
+        except Exception as e:
+            print(f"  [context] update {company_id} failed ({type(e).__name__}: {e})")
+            return False
 
     def _find_company_ours(self, domain: str) -> tuple[str | None, bool]:
         """Like find_company_id_by_domain, but also reads back machine_sourced so
@@ -263,6 +279,7 @@ class HubSpotClient:
             SOURCE_PROVENANCE_PROPERTY: account.discovered_by,
             MACHINE_SOURCED_DATE_PROPERTY: date.today().isoformat(),
             ENGINE_STATUS_PROPERTY: "working",
+            **hubspot_context.context_properties(account),
             "hubspot_owner_id": owner_id,
         }})
         return created["id"]
