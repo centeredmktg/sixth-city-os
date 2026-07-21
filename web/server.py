@@ -33,6 +33,7 @@ from engine.jobs import find_accounts, score_accounts, route_accounts
 from engine.jobs import claim
 from engine.jobs import enrich as enrich_job
 from engine.jobs import enrich_places
+from engine.jobs import sync_hubspot_context
 from engine.jobs.rescore import rescore_all
 from engine.modules import draft_cold_email
 from engine.modules import hubspot_links
@@ -318,6 +319,16 @@ def claim_endpoint(limit: int = None, session=Depends(db_session)):
     net-new, not-yet-claimed, not-yet-pushed rows), so re-running or overlapping with
     the ingest-triggered background task is safe."""
     return claim.run(session, limit=limit)
+
+
+@app.get("/api/sync-context/pending")
+def sync_context_pending(session=Depends(db_session)):
+    return {"pending": sync_hubspot_context.pending_count(session)}
+
+
+@app.post("/api/sync-context")
+def sync_context(limit: int = None, session=Depends(db_session)):
+    return sync_hubspot_context.run(session, limit=limit)
 
 
 @app.post("/api/push")
