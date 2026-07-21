@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from engine.db.models import AccountRow
 from engine.db import repo, settings_repo
+from engine.modules import hubspot_context
 
 # A full drain (limit=None) can be thousands of sequential HubSpot POSTs. Commit
 # after each chunk so a mid-run crash doesn't lose the DB record of everything
@@ -55,6 +56,7 @@ def run(session: Session, limit: int | None = None, client=None, owner_id=None) 
                 row.claimed_at = datetime.now(timezone.utc)
                 if not row.hubspot_id:
                     row.hubspot_id = hid
+                row.context_hash = hubspot_context.context_hash(account)
                 claimed += 1
         session.commit()
         if i + _CHUNK < len(rows):  # pace between chunks only, not after the last

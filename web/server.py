@@ -36,6 +36,7 @@ from engine.jobs import enrich_places
 from engine.jobs.rescore import rescore_all
 from engine.modules import draft_cold_email
 from engine.modules import hubspot_links
+from engine.modules import hubspot_context
 from engine.models import Route, Stage
 from engine import routing
 from engine.scoring import abcr
@@ -365,6 +366,7 @@ def push(req: PushRequest, session=Depends(db_session)):
             continue
         if hid and not str(hid).startswith("dry-"):
             repo.mark_pushed(session, dom, hid)
+            repo.set_context_hash(session, dom, hubspot_context.context_hash(a))
             claimed += 1
             results.append({"domain": dom, "status": "claimed", "hubspot_id": hid})
         elif hid:  # dry-mode id — claimed for the UI flow, nothing persisted
