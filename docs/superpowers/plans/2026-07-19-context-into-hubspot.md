@@ -898,9 +898,11 @@ git commit -m "feat(ui): Sync-to-HubSpot button (N pending) on the Scoring scree
 
 ## Post-build: prod cutover (Danny, manual — NOT build tasks)
 
-1. Open the PR; verify `git log origin/main..HEAD` has every commit; merge → Railway auto-deploys. `migrate_add_context_hash` self-applies at boot.
-2. **Create the 5 properties once:** `railway run python3 -m engine.hubspot.create_context_properties --run` (run from `pipeline-engine/`, `python3` not `python`).
-3. **Backfill the 4,318 claimed:** `railway run python3 -c "from engine.db.base import make_engine, make_session_factory; from engine.jobs import sync_hubspot_context as s; s.run(make_session_factory(make_engine())())"` — all rows have `context_hash=NULL` → all dirty → full push (~30–45 min, resumable; re-run to finish if interrupted).
+⚠️ **ORDER MATTERS — create the properties BEFORE the code deploys.** `claim_company`/`promote_to_working` now write `engine_*` into their CREATE payloads; HubSpot 400s a create that references a property that doesn't exist yet. If the code ships before the properties exist, every auto-claim + promote-create 400s until step 1 runs. So do step 1 FIRST.
+
+1. **Create the 5 properties FIRST** (before/at merge, additive + harmless on the old code): `railway run python3 -m engine.hubspot.create_context_properties --run` (run from `pipeline-engine/`, `python3` not `python`). Verify all 5 exist in the portal (group `pipeline_engine`) before the deploy carrying this code goes live.
+2. Merge → Railway auto-deploys. `migrate_add_context_hash` self-applies at boot. (Because step 1 already ran, the first post-deploy claim/promote payloads reference existing properties.)
+3. **Backfill the already-claimed rows:** `railway run python3 -c "from engine.db.base import make_engine, make_session_factory; from engine.jobs import sync_hubspot_context as s; s.run(make_session_factory(make_engine())())"` — all rows have `context_hash=NULL` → all dirty → full push (~30–45 min, resumable; re-run to finish if interrupted).
 4. Ongoing drift is handled by the "Sync to HubSpot" button.
 
 ## Self-Review (done)
