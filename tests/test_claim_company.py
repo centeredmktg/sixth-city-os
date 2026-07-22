@@ -11,7 +11,7 @@ def _live_client(monkeypatch):
 
 def test_claim_company_creates_net_new_with_owner_and_status(monkeypatch):
     c = _live_client(monkeypatch)
-    monkeypatch.setattr(c, "find_company_id_by_domain", lambda d: None)  # net-new
+    monkeypatch.setattr(c, "_find_company_ours", lambda d: (None, False))  # net-new
     captured = {}
     def fake_post(path, payload):
         captured["path"] = path
@@ -36,11 +36,21 @@ def test_claim_company_refuses_blank_owner(monkeypatch):
         c.claim_company(a, owner_id="")
 
 
-def test_claim_company_never_claims_existing_book(monkeypatch):
+def test_claim_company_existing_and_ours_returns_id_no_write(monkeypatch):
     c = _live_client(monkeypatch)
-    monkeypatch.setattr(c, "find_company_id_by_domain", lambda d: "999")  # already in book
+    monkeypatch.setattr(c, "_find_company_ours", lambda d: ("42", True))  # our own prior claim
     def boom(path, payload):
-        raise AssertionError("must not create when the domain already exists")
+        raise AssertionError("must not write when re-adopting our own existing claim")
     monkeypatch.setattr(c, "_post", boom)
     a = Account(name="X", domain="x.example")
-    assert c.claim_company(a, owner_id="555") == "999"
+    assert c.claim_company(a, owner_id="555") == "42"
+
+
+def test_claim_company_existing_and_johns_returns_none_no_write(monkeypatch):
+    c = _live_client(monkeypatch)
+    monkeypatch.setattr(c, "_find_company_ours", lambda d: ("99", False))  # John's pre-existing record
+    def boom(path, payload):
+        raise AssertionError("must not claim/write onto John's pre-existing book")
+    monkeypatch.setattr(c, "_post", boom)
+    a = Account(name="X", domain="x.example")
+    assert c.claim_company(a, owner_id="555") is None

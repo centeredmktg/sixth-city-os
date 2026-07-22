@@ -192,13 +192,16 @@ class HubSpotClient:
                   f"| {ENGINE_STATUS_PROPERTY}=discovered | owner={owner_id}")
             return f"dry-{account.domain}"
 
-        existing = self.find_company_id_by_domain(account.domain)
+        existing, is_ours = self._find_company_ours(account.domain)
         if existing:
-            # Already present. We can't tell ours vs John's from the id alone here, and the
-            # SLA guard is conservative: NEVER re-stamp an existing record. Return the id so
-            # callers can associate/promote, but no write happens.
-            print(f"  [exists] {account.domain} already in CRM (id {existing}) — not claimed")
-            return existing
+            if is_ours:
+                # Our own prior claim (e.g. the DB didn't record it) — safe to
+                # re-adopt, still no write.
+                print(f"  [exists-ours] {account.domain} — already engine-sourced")
+                return existing
+            # John's pre-existing book. NEVER claim/write onto it — the SLA guard.
+            print(f"  [exists] {account.domain} in book but not engine-sourced — not claimed")
+            return None
 
         created = self._post("/crm/v3/objects/companies", {"properties": {
             "name": account.name,

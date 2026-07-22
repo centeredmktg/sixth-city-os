@@ -31,7 +31,7 @@ def test_update_context_degrades_on_error(monkeypatch):
 
 def test_claim_payload_includes_context(monkeypatch):
     c = _live()
-    monkeypatch.setattr(c, "find_company_id_by_domain", lambda d: None)
+    monkeypatch.setattr(c, "_find_company_ours", lambda d: (None, False))
     made = {}
     monkeypatch.setattr(c, "_post", lambda path, payload: made.update(payload["properties"]) or {"id": "9"})
     a = Account(name="Buckeye", domain="buckeye.example")
