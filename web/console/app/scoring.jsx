@@ -79,6 +79,9 @@ function ScoringScreen() {
   const [ownerSaving, setOwnerSaving] = useStateSC(false);
   const [ownerSaved, setOwnerSaved] = useStateSC(false);
 
+  const [pending, setPending] = useStateSC(null);
+  const [syncing, setSyncing] = useStateSC(false);
+
   useEffectSC(() => {
     fetch("/api/scoring-config").then((r) => r.json()).then((j) => { setCfg(j.config); setDefaults(j.defaults); });
   }, []);
@@ -88,6 +91,9 @@ function ScoringScreen() {
     fetch("/api/owner-config").then((r) => r.json()).then((j) => setDefaultOwner(j.default_owner_id || ""));
   }, []);
 
+  const loadPending = () => fetch("/api/sync-context/pending").then((r) => r.json()).then((j) => setPending(j.pending));
+  useEffectSC(() => { loadPending(); }, []);
+
   const saveOwner = () => {
     setOwnerSaving(true); setOwnerSaved(false);
     fetch("/api/owner-config", {
@@ -95,6 +101,15 @@ function ScoringScreen() {
     }).then((r) => r.json().then((j) => ({ ok: r.ok, j })))
       .then(({ ok }) => { if (ok) setOwnerSaved(true); })
       .finally(() => setOwnerSaving(false));
+  };
+
+  const syncContext = () => {
+    setSyncing(true);
+    fetch("/api/sync-context", { method: "POST" })
+      .then((r) => r.json())
+      .then(() => loadPending())
+      .catch(() => {})
+      .finally(() => setSyncing(false));
   };
 
   // Debounced live preview — re-scores in memory server-side, persists nothing.
@@ -169,6 +184,21 @@ function ScoringScreen() {
               <div className="sc-actions">
                 <button className="sc-btn sc-btn--primary" onClick={saveOwner} disabled={!defaultOwner || ownerSaving}>
                   {ownerSaving ? "Saving…" : ownerSaved ? "Saved ✓" : "Save owner"}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Context in HubSpot */}
+          <div className="sc-group">
+            <div className="sc-group__h"><h4>Context in HubSpot</h4></div>
+            <div className="sc-group__b">
+              <p className="sc-owner-note">Push each company's score, band, route and "why now" onto its HubSpot record so the team can sort and filter by them. Only companies whose assessment changed are updated.</p>
+              <div className="sc-actions">
+                <button className="sc-btn sc-btn--primary" disabled={syncing || pending === 0}
+                  onClick={syncContext}>
+                  {syncing ? "Syncing…" : pending == null ? "Sync to HubSpot"
+                    : pending === 0 ? "All synced ✓" : `Sync to HubSpot (${pending} pending)`}
                 </button>
               </div>
             </div>

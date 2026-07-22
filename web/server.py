@@ -33,9 +33,11 @@ from engine.jobs import find_accounts, score_accounts, route_accounts
 from engine.jobs import claim
 from engine.jobs import enrich as enrich_job
 from engine.jobs import enrich_places
+from engine.jobs import sync_hubspot_context
 from engine.jobs.rescore import rescore_all
 from engine.modules import draft_cold_email
 from engine.modules import hubspot_links
+from engine.modules import hubspot_context
 from engine.models import Route, Stage
 from engine import routing
 from engine.scoring import abcr
@@ -319,6 +321,16 @@ def claim_endpoint(limit: int = None, session=Depends(db_session)):
     return claim.run(session, limit=limit)
 
 
+@app.get("/api/sync-context/pending")
+def sync_context_pending(session=Depends(db_session)):
+    return {"pending": sync_hubspot_context.pending_count(session)}
+
+
+@app.post("/api/sync-context")
+def sync_context(limit: int = None, session=Depends(db_session)):
+    return sync_hubspot_context.run(session, limit=limit)
+
+
 @app.post("/api/push")
 def push(req: PushRequest, session=Depends(db_session)):
     """Confirm = PROMOTE, not create. The company is already in HubSpot by the time an
@@ -365,6 +377,7 @@ def push(req: PushRequest, session=Depends(db_session)):
             continue
         if hid and not str(hid).startswith("dry-"):
             repo.mark_pushed(session, dom, hid)
+            repo.set_context_hash(session, dom, hubspot_context.context_hash(a))
             claimed += 1
             results.append({"domain": dom, "status": "claimed", "hubspot_id": hid})
         elif hid:  # dry-mode id — claimed for the UI flow, nothing persisted
