@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import time
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from engine.db.models import AccountRow
 from engine.db import repo
@@ -18,7 +18,11 @@ _PACE_SEC = 0.2
 
 def _dirty_rows(session: Session):
     """Claimed companies (with a HubSpot id) whose current context hash != stored."""
+    # selectinload batches all signals in one query — without it, `_account_from_row`
+    # lazy-loads signals per row (N+1); over ~4,300 claimed rows against remote Postgres
+    # that's thousands of round-trips (times out / poisons the txn). Mirrors rescore_all.
     rows = (session.query(AccountRow)
+            .options(selectinload(AccountRow.signals))
             .filter(AccountRow.claimed.is_(True), AccountRow.hubspot_id.isnot(None))
             .order_by(AccountRow.total.desc()).all())
     out = []
