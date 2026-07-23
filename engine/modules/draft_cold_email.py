@@ -82,7 +82,10 @@ def draft(account: Account, live: bool = False, contact: Contact | None = None) 
     who = "businesses across Ohio" if account.vertical is Vertical.UNKNOWN \
         else f"{vertical} businesses across Ohio"
     subject = f"Quick note on {account.name}'s website"
-    first = contact.name.split()[0] if contact and contact.name else ""
+    # Scraped role inboxes (info@, sales@) carry a label, not a person's name — greet them
+    # neutrally so we never send "Hi Info".
+    first = (contact.name.split()[0]
+             if contact and contact.name and contact.source != "site_scrape" else "")
     hi = f"Hi {first}" if first else "Hi"
     paragraphs = [
         f"{hi} — ran {account.name} through our site evaluation. {reason}",
