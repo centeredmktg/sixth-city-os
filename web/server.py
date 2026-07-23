@@ -402,25 +402,47 @@ def _contact_dict(c) -> dict:
 
 @app.post("/api/pursue")
 def pursue(req: PushRequest, session=Depends(db_session)):
-    """Operator commits to opportunities -> find & enrich the decision-makers (Apollo)
-    for each company, store them, flag it pursued. Dry mode (no APOLLO_API_KEY) returns
-    0 contacts. Credits are spent here, on the shortlist — never the haystack."""
+    """Operator commits to opportunities -> multi-thread discovery per company: Apollo
+    decision-makers + free scraped role inboxes (merged, deduped) + a company phone
+    (homepage, else Google Places). Contacts are stored; the phone/address ride on
+    account.extra. Dry sources degrade to empty — never 500."""
     from engine.apollo.client import ApolloClient
+    from engine.modules import contact_waterfall
     apollo = ApolloClient()
     out = []
     for domain in req.domains:
-        contacts = apollo.find_contacts(domain, limit=5)
-        n = repo.store_contacts(session, domain, contacts)
+        row = session.get(AccountRow, domain)
+        if row is None:
+            out.append({"domain": domain, "contacts_found": 0, "contacts": [],
+                        "general_phone": None, "general_address": None, "phone_source": "none"})
+            continue
+        result = contact_waterfall.pursue_company(row, apollo)
+        n = repo.store_contacts(session, domain, result.contacts)   # commits contacts + pursued
+        row = session.get(AccountRow, domain)
+        row.extra = {**(row.extra or {}),
+                     "general_phone": result.general_phone,
+                     "general_address": result.general_address,
+                     "phone_source": result.phone_source}
+        session.commit()
         out.append({"domain": domain, "contacts_found": n,
-                    "contacts": [_contact_dict(c) for c in contacts]})
+                    "contacts": [_contact_dict(c) for c in result.contacts],
+                    "general_phone": result.general_phone,
+                    "general_address": result.general_address,
+                    "phone_source": result.phone_source})
     return {"pursued": out, "apollo_configured": not apollo.dry}
 
 
 @app.get("/api/contacts")
 def contacts(domain: str, session=Depends(db_session)):
-    """The decision-makers sourced for a pursued company (empty until pursued)."""
+    """The decision-makers + company phone/address sourced for a pursued company
+    (empty until pursued)."""
+    row = session.get(AccountRow, domain)
+    extra = (row.extra or {}) if row else {}
     return {"domain": domain,
-            "contacts": [_contact_dict(c) for c in repo.get_contacts(session, domain)]}
+            "contacts": [_contact_dict(c) for c in repo.get_contacts(session, domain)],
+            "general_phone": extra.get("general_phone"),
+            "general_address": extra.get("general_address"),
+            "phone_source": extra.get("phone_source", "none")}
 
 
 # --- Messages: the compose/send queue (Company → Contact → Message) -----------
