@@ -35,8 +35,12 @@ def _inbox_contact(email: str, domain: str) -> Contact:
                    title="General inbox", email=email, source="site_scrape")
 
 
-def pursue_company(account, apollo, *, fetch=site_audit.fetch,
-                   places_lookup=google_places.lookup_contact) -> PursueResult:
+def pursue_company(account, apollo, *, fetch=None, places_lookup=None) -> PursueResult:
+    # Resolve collaborators at CALL time (not as def-time default args) so the endpoint
+    # path — which calls with no overrides — is steerable by monkeypatching site_audit.fetch
+    # / google_places.lookup_contact. Tests still inject explicit fakes.
+    fetch = fetch or site_audit.fetch
+    places_lookup = places_lookup or google_places.lookup_contact
     domain = (getattr(account, "domain", "") or "").strip().lower()
 
     # 1. Apollo — the decision-makers (kept even when email is blank).
