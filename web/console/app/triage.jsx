@@ -70,6 +70,15 @@ const TG_CSS = `
 .tg-leg__sub{ color:var(--text-subtle); }
 .tg-leg__n{ margin-left:auto; font-family:var(--font-condensed); font-weight:800; color:var(--text-strong); }
 .tg-empty{ text-align:center; padding:50px 20px; color:var(--text-muted); }
+.tg-contacts{ grid-column:1/-1; border-top:1px solid var(--border-subtle); padding-top:12px; margin-top:2px; }
+.tg-find{ border:1px solid var(--border-default); background:var(--surface-card); border-radius:var(--radius-sm); padding:6px 12px; font-size:12px; font-weight:700; color:var(--text-body); cursor:pointer; }
+.tg-find:disabled{ opacity:.6; cursor:default; }
+.tg-crows{ display:flex; flex-direction:column; gap:4px; }
+.tg-crow{ font-size:12px; color:var(--text-body); }
+.tg-crow__nm{ font-weight:700; color:var(--text-strong); }
+.tg-crow__t,.tg-crow__e{ color:var(--text-muted); }
+.tg-call{ display:inline-flex; align-items:center; gap:7px; background:var(--ink-700); color:#fff; text-decoration:none; border-radius:var(--radius-sm); padding:7px 13px; font-size:12px; font-weight:800; }
+.tg-none{ font-size:12px; color:var(--text-subtle); }
 `;
 (function(){ if(document.getElementById("tg-css"))return; const s=document.createElement("style"); s.id="tg-css"; s.textContent=TG_CSS; document.head.appendChild(s); })();
 
@@ -105,6 +114,8 @@ function TriageBoard({ onConfirmed, onError }) {
   const [overrides, setOverrides] = useStateT({});   // domain -> route key (operator override)
   const [confirmed, setConfirmed] = useStateT({});    // domain -> true (pushed)
   const [busy, setBusy] = useStateT({});              // domain -> true while ITS push is in flight (per-row, not page-wide)
+  const [finding, setFinding] = useStateT({});        // domain -> true while contact discovery runs
+  const [found, setFound] = useStateT({});            // domain -> {contacts, general_phone, phone_source}
 
   const routeOf = (a) => overrides[a.domain] || a.route || "nurture";
   const setRoute = (domain, key) => setOverrides((o) => ({ ...o, [domain]: key }));
@@ -137,6 +148,24 @@ function TriageBoard({ onConfirmed, onError }) {
     } catch (e) {
       onError && onError(e);
     } finally { setBusy((b) => { const n = { ...b }; list.forEach((d) => delete n[d]); return n; }); }
+  }
+
+  // Discovery-only: pull the contact set (Apollo people + scraped inboxes, or a company
+  // phone) so the operator can see who's reachable BEFORE committing the route. Compose/
+  // send stays in Morning Queue — this never sends.
+  async function findContacts(domain) {
+    setFinding((f) => ({ ...f, [domain]: true }));
+    try {
+      const res = await PET.pursueDomains([domain]);
+      const row = (res.pursued || []).find((p) => p.domain === domain) || {};
+      setFound((m) => ({ ...m, [domain]: {
+        contacts: row.contacts || [], general_phone: row.general_phone || null,
+        phone_source: row.phone_source || "none" } }));
+    } catch (e) {
+      setFound((m) => ({ ...m, [domain]: { contacts: [], general_phone: null, phone_source: "error" } }));
+    } finally {
+      setFinding((f) => { const n = { ...f }; delete n[domain]; return n; });
+    }
   }
 
   return (
@@ -219,6 +248,37 @@ function TriageBoard({ onConfirmed, onError }) {
                             : <span style={{ fontSize: 11, color: "var(--text-subtle)" }}>{r === "reject" ? "won't be worked" : "marketing track — not worked"}</span>}
                         </React.Fragment>
                       )}
+                    </div>
+
+                    <div className="tg-contacts">
+                      {(() => {
+                        const fc = found[a.domain];
+                        if (!fc) return (
+                          <button className="tg-find" disabled={!!finding[a.domain]}
+                            onClick={() => findContacts(a.domain)}>
+                            {finding[a.domain] ? "Finding contacts…" : "Find contacts"}
+                          </button>
+                        );
+                        if (fc.contacts.length) return (
+                          <div className="tg-crows">
+                            {fc.contacts.map((c, i) => (
+                              <div className="tg-crow" key={i}>
+                                <span className="tg-crow__nm">{c.name}</span>
+                                {c.title ? <span className="tg-crow__t"> · {c.title}</span> : null}
+                                {c.email ? <span className="tg-crow__e"> · {c.email}</span> : null}
+                              </div>
+                            ))}
+                          </div>
+                        );
+                        if (fc.general_phone) return (
+                          <a className="tg-call" href={"tel:" + fc.general_phone}>
+                            {IcoT.Phone ? <IcoT.Phone size={14} /> : null} Call {fc.general_phone}
+                          </a>
+                        );
+                        if (fc.phone_source === "error")
+                          return <span className="tg-none">Couldn’t look up contacts — try again.</span>;
+                        return <span className="tg-none">No contact found.</span>;
+                      })()}
                     </div>
                   </div>
                 );
