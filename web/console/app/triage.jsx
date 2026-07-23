@@ -259,21 +259,29 @@ function TriageBoard({ onConfirmed, onError }) {
                             {finding[a.domain] ? "Finding contacts…" : "Find contacts"}
                           </button>
                         );
-                        if (fc.contacts.length) return (
-                          <div className="tg-crows">
-                            {fc.contacts.map((c, i) => (
-                              <div className="tg-crow" key={i}>
-                                <span className="tg-crow__nm">{c.name}</span>
-                                {c.title ? <span className="tg-crow__t"> · {c.title}</span> : null}
-                                {c.email ? <span className="tg-crow__e"> · {c.email}</span> : null}
-                              </div>
-                            ))}
+                        const crow = (c, i) => (
+                          <div className="tg-crow" key={i}>
+                            <span className="tg-crow__nm">{c.name}</span>
+                            {c.title ? <span className="tg-crow__t"> · {c.title}</span> : null}
+                            {c.email ? <span className="tg-crow__e"> · {c.email}</span> : null}
                           </div>
                         );
-                        if (fc.general_phone) return (
+                        const callChip = fc.general_phone ? (
                           <a className="tg-call" href={"tel:" + fc.general_phone}>
                             {IcoT.Phone ? <IcoT.Phone size={14} /> : null} Call {fc.general_phone}
                           </a>
+                        ) : null;
+                        // Sendable = has an email (a real compose target). The Call chip is
+                        // promoted ONLY when NO sendable contact exists — an emailless Apollo
+                        // person (common for SMB) must not hide a discovered phone.
+                        const sendable = fc.contacts.filter((c) => c.email);
+                        if (sendable.length) return <div className="tg-crows">{sendable.map(crow)}</div>;
+                        const namesOnly = fc.contacts.filter((c) => !c.email);
+                        if (namesOnly.length || callChip) return (
+                          <div className="tg-crows">
+                            {namesOnly.map(crow)}
+                            {callChip || <span className="tg-none">No email or phone yet — look them up.</span>}
+                          </div>
                         );
                         if (fc.phone_source === "error")
                           return <span className="tg-none">Couldn’t look up contacts — try again.</span>;
