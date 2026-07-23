@@ -110,6 +110,27 @@ def place_details(place_id: str) -> dict:
     return r.json()
 
 
+def lookup_contact(name: str, city: str, state: str, domain: str) -> dict | None:
+    """Company phone/address from Google Places — the waterfall's phone-of-last-resort.
+    Reuses the same fetchers as enrich() but returns contact fields instead of a Signal,
+    and never mutates. None on dry mode / empty query / no or wrong-domain match / network
+    error, so the caller degrades cleanly."""
+    if not CONFIG.google_places_key:
+        return None
+    query = " ".join(p for p in (name, city, state) if p).strip()
+    if not query:
+        return None
+    try:
+        place_id = find_place_id(query)
+        listing = place_details(place_id) if place_id else None
+    except requests.RequestException:
+        return None
+    if listing is None or not _match_ok(domain, name, listing):
+        return None
+    return {"phone": listing.get("nationalPhoneNumber", "") or "",
+            "address": listing.get("formattedAddress", "") or ""}
+
+
 class GooglePlacesSource(DataSource):
     name = "google_places"
     provides_accounts = False
