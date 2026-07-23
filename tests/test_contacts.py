@@ -65,3 +65,19 @@ def test_pursue_phone_only_promotes(client, monkeypatch):
     row = r.json()["pursued"][0]
     assert row["contacts"] == [] and row["general_phone"] == "(216) 555-1200"
     assert row["phone_source"] == "places" and row["general_address"] == "1 Main"
+
+
+def test_pursue_survives_apollo_error(client, monkeypatch):
+    # Configured Apollo raising (429/timeout) must not 500 /api/pursue — the scrape tier
+    # still delivers a phone and the endpoint returns 200.
+    import requests
+    client.post("/api/ingest", files={"file": ("c.csv", io.BytesIO(CSV.encode()), "text/csv")})
+    def boom(self, domain, limit=5):
+        raise requests.RequestException("429")
+    monkeypatch.setattr("engine.apollo.client.ApolloClient.find_contacts", boom)
+    monkeypatch.setattr("engine.sources.site_audit.fetch",
+                        lambda d, **k: ("call (216) 555-0100", {}))
+    r = client.post("/api/pursue", json={"domains": ["buckeye.example"]})
+    assert r.status_code == 200
+    row = r.json()["pursued"][0]
+    assert row["contacts"] == [] and row["general_phone"] == "(216) 555-0100"

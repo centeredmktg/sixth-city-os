@@ -43,8 +43,13 @@ def pursue_company(account, apollo, *, fetch=None, places_lookup=None) -> Pursue
     places_lookup = places_lookup or google_places.lookup_contact
     domain = (getattr(account, "domain", "") or "").strip().lower()
 
-    # 1. Apollo — the decision-makers (kept even when email is blank).
-    people = apollo.find_contacts(domain, limit=5) if domain else []
+    # 1. Apollo — the decision-makers (kept even when email is blank). Guarded like the
+    # other tiers: a configured Apollo hitting 429/5xx/timeout degrades to no people
+    # rather than 500-ing the whole pursue (and taking scrape + Places down with it).
+    try:
+        people = apollo.find_contacts(domain, limit=5) if domain else []
+    except Exception:
+        people = []
 
     # 2. Site-scrape (free) — prefer already-enriched extra, else one live fetch.
     extra = getattr(account, "extra", None) or {}

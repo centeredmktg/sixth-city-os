@@ -76,3 +76,15 @@ def test_fetch_failure_degrades():
     def boom(d): raise RuntimeError("network")
     res = cw.pursue_company(_acct(), _Apollo([]), fetch=boom, places_lookup=lambda *a: None)
     assert res.contacts == [] and res.phone_source == "none"
+
+
+def test_apollo_error_degrades():
+    # A configured Apollo hitting 429/5xx/timeout must not sink the whole pursue —
+    # the scrape tier still runs and the endpoint stays alive (degrade-never-raise).
+    class _BoomApollo:
+        def find_contacts(self, domain, limit=5):
+            raise RuntimeError("apollo 429")
+    res = cw.pursue_company(_acct(), _BoomApollo(),
+                            fetch=lambda d: ("call (216) 555-0100", {}),
+                            places_lookup=lambda *a: None)
+    assert res.contacts == [] and res.general_phone == "(216) 555-0100"
