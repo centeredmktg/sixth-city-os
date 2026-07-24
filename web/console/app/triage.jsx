@@ -78,6 +78,9 @@ const TG_CSS = `
 .tg-crow__nm{ font-weight:700; color:var(--text-strong); }
 .tg-crow__t,.tg-crow__e{ color:var(--text-muted); }
 .tg-call{ display:inline-flex; align-items:center; gap:7px; background:var(--ink-700); color:#fff; text-decoration:none; border-radius:var(--radius-sm); padding:7px 13px; font-size:12px; font-weight:800; }
+.tg-callrow{ display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.tg-logcall{ font-size:12px; font-weight:700; color:var(--coral-600); text-decoration:none; }
+.tg-logcall:hover{ text-decoration:underline; }
 .tg-none{ font-size:12px; color:var(--text-subtle); }
 `;
 (function(){ if(document.getElementById("tg-css"))return; const s=document.createElement("style"); s.id="tg-css"; s.textContent=TG_CSS; document.head.appendChild(s); })();
@@ -266,10 +269,21 @@ function TriageBoard({ onConfirmed, onError }) {
                             {c.email ? <span className="tg-crow__e"> · {c.email}</span> : null}
                           </div>
                         );
+                        // Dial the (general company) number, and — when the company has a
+                        // HubSpot record — a "Log the Call" deep-link so the rep logs it on
+                        // the record themselves (SSO-attributed). record_url already targets
+                        // the contact when we have one, else the company; today every phone
+                        // is a general company number, so this resolves to a.hubspot_url.
                         const callChip = fc.general_phone ? (
-                          <a className="tg-call" href={"tel:" + fc.general_phone}>
-                            {IcoT.Phone ? <IcoT.Phone size={14} /> : null} Call {fc.general_phone}
-                          </a>
+                          <div className="tg-callrow">
+                            <a className="tg-call" href={"tel:" + fc.general_phone}>
+                              {IcoT.Phone ? <IcoT.Phone size={14} /> : null} Call {fc.general_phone}
+                            </a>
+                            {a.hubspot_url ? (
+                              <a className="tg-logcall" href={a.hubspot_url}
+                                target="_blank" rel="noopener noreferrer">Log the Call →</a>
+                            ) : null}
+                          </div>
                         ) : null;
                         // Sendable = has an email (a real compose target). The Call chip is
                         // promoted ONLY when NO sendable contact exists — an emailless Apollo
