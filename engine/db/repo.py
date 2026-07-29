@@ -25,6 +25,7 @@ def _row_from_account(a: Account) -> AccountRow:
         claimed=getattr(a, "claimed", False),
         claimed_at=getattr(a, "claimed_at", None),
         context_hash=getattr(a, "context_hash", None),
+        decided_at=getattr(a, "decided_at", None),
     )
     if a.score:
         row.fit = a.score.fit
@@ -74,6 +75,7 @@ def _account_from_row(row: AccountRow) -> Account:
     a.__dict__["claimed"] = bool(row.claimed)
     a.__dict__["claimed_at"] = row.claimed_at
     a.__dict__["context_hash"] = row.context_hash
+    a.__dict__["decided_at"] = row.decided_at
     return a
 
 
@@ -96,6 +98,13 @@ def upsert_accounts(session: Session, accounts: list[Account]) -> None:
             # Preserve the pursued state + sourced contacts so a re-ingest never wipes
             # decision-makers we already paid Apollo to find.
             new_row.pursued = existing.pursued or new_row.pursued
+            # A human's Hold/Nurture/Reject outlives re-ingest — otherwise tomorrow's
+            # Clay export resurrects every company the operator already rejected.
+            if existing.route_confirmed:
+                new_row.route_confirmed = True
+                new_row.route_confirmed_route = existing.route_confirmed_route
+                new_row.route_confirmed_by = existing.route_confirmed_by
+                new_row.decided_at = existing.decided_at
             new_row.contacts = [
                 ContactRow(name=c.name, title=c.title, email=c.email,
                            linkedin_url=c.linkedin_url, seniority=c.seniority, source=c.source)
