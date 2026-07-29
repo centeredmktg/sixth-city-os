@@ -32,6 +32,7 @@ class AccountRow(Base):
     enriched: Mapped[bool] = mapped_column(Boolean, default=False)
     claimed: Mapped[bool] = mapped_column(Boolean, default=False)  # auto-claim pushed it to HubSpot
     claimed_at: Mapped["datetime | None"] = mapped_column(DateTime(timezone=True), nullable=True, default=None)
+    decided_at: Mapped["datetime | None"] = mapped_column(DateTime(timezone=True), nullable=True, default=None)  # human made the Hold/Nurture/Reject call
     context_hash: Mapped[str | None] = mapped_column(String, nullable=True, default=None)  # last HubSpot-synced context
     net_new: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
     pursued: Mapped[bool] = mapped_column(Boolean, default=False)   # operator committed -> contacts sourced
