@@ -449,6 +449,7 @@ def undecide(req: UndecideRequest, session=Depends(db_session)):
             continue
         row.route_confirmed = False
         row.route_confirmed_route = None
+        row.route_confirmed_by = ""
         row.decided_at = None
         undecided += 1
         results.append({"domain": dom, "status": "undecided"})

@@ -97,4 +97,5 @@ def test_undecide_returns_the_firm_to_triage(client, session, monkeypatch):
     row = session.get(AccountRow, "buckeye.example")
     assert row.route_confirmed is False
     assert row.decided_at is None
+    assert row.route_confirmed_by == ""  # undo must clear attribution, not just the route
     assert {a.domain for a in repo.get_candidates(session)} == {"buckeye.example"}
