@@ -144,6 +144,20 @@ def get_candidates(session: Session) -> list[Account]:
     return accounts
 
 
+def get_decided(session: Session, decision: str) -> list[Account]:
+    """Firms a human decided on (hold | nurture | reject), newest decision first.
+    Feeds the Activity screen's filter — these left the finding surface but are not
+    gone."""
+    rows = (session.query(AccountRow)
+            # signals only — _account_from_row reads them; nothing here reads .contacts.
+            .options(selectinload(AccountRow.signals))
+            .filter(AccountRow.route_confirmed.is_(True),
+                    AccountRow.route_confirmed_route == decision)
+            .order_by(AccountRow.decided_at.desc().nullslast())
+            .all())
+    return [_account_from_row(r) for r in rows]
+
+
 def mark_pushed(session: Session, domain: str, hubspot_id: str) -> None:
     """Record the claim: the firm is in HubSpot, drop it from the triage queue."""
     row = session.get(AccountRow, domain)

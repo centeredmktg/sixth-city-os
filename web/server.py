@@ -177,8 +177,15 @@ async def ingest(file: UploadFile = File(...), background_tasks: BackgroundTasks
 
 
 @app.get("/api/candidates")
-def candidates(session=Depends(db_session), limit: int = 250):
-    all_unpushed = repo.get_candidates(session)   # sorted by score desc
+def candidates(session=Depends(db_session), limit: int = 250, decision: str | None = None):
+    if decision is not None:
+        if decision not in ("hold", "nurture", "reject"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown decision {decision!r} — expected hold, nurture or reject")
+        all_unpushed = repo.get_decided(session, decision)
+    else:
+        all_unpushed = repo.get_candidates(session)   # sorted by score desc
 
     # Counts over the full unpushed set
     n_net_new = sum(1 for a in all_unpushed if a.net_new is True)
@@ -228,6 +235,8 @@ def candidates(session=Depends(db_session), limit: int = 250):
             "hubspot_url": hubspot_links.record_url(company_hubspot_id=a.hubspot_id),
             "score_rationale": a.score.rationale if a.score else "",
             "route_confirmed": bool(a.route and a.route.confirmed),
+            "decided_at": (a.__dict__.get("decided_at").isoformat()
+                           if a.__dict__.get("decided_at") else None),
             "pursued": a.pursued,
             "site_emails": (a.extra or {}).get("site_emails", []),
             "site_phones": (a.extra or {}).get("site_phones", []),
