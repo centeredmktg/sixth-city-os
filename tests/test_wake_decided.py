@@ -17,6 +17,7 @@ def _session():
 def _decided(session, domain, route, timing):
     session.add(AccountRow(domain=domain, name=domain, timing=timing,
                            route_confirmed=True, route_confirmed_route=route,
+                           route_confirmed_by="operator",
                            decided_at=datetime(2026, 7, 1, tzinfo=timezone.utc)))
     session.commit()
     return session.get(AccountRow, domain)
@@ -29,6 +30,7 @@ def test_wakes_a_hold_that_crosses_the_gate_upward():
     assert woken == ["buckeye.example"]
     assert row.route_confirmed is False
     assert row.decided_at is None
+    assert row.route_confirmed_by == ""  # attribution clears too, same as /api/undecide
 
 
 def test_wakes_a_nurture_that_crosses_the_gate_upward():

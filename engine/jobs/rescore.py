@@ -39,6 +39,7 @@ def wake_heated_decisions(session: Session, rows, prior_timing: dict[str, float]
         row.route_confirmed = False
         row.route_confirmed_route = None
         row.decided_at = None
+        row.route_confirmed_by = ""  # match /api/undecide: reversing a decision clears attribution too
         woken.append(row.domain)
         print(f"  [wake] {row.domain} timing {before:.0f} -> {row.timing:.0f} "
               f"— back on the board")
