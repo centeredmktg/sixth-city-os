@@ -1208,9 +1208,41 @@ git commit -m "feat(rescore): wake Hold/Nurture firms that cross the timing gate
 
 **Interfaces:**
 - Consumes: `PE.fetchContacts`, `PE.pursueDomains`, `PE.composeMessage`, `PE.editMessage`, `PE.sendMessage` (all exist in `data.jsx`)
-- Produces: `window.PE.ComposePanel` — props `{account, onError, onSent}`. `onSent(contactEmail)` fires **only** after the server returns `{sent: true}`; Task 11 and the next plan hang the card removal off it.
+- Produces:
+  - `window.PE.ComposePanel` — props `{account, onError, onSent}`. `onSent(contactEmail)` fires **only** after the server returns `{sent: true}`; Task 11 and the next plan hang the card removal off it.
+  - `window.PE.CompanyLink` — props `{name, domain}`. Renders the company name as a link to its site. Used by Tasks 10 and 11 and by the Activity screen, so the markup exists once.
 
 **This is a move, not a rewrite.** `MQComposePanel` already takes `{account, onError}` and handles find → compose → edit → send end to end. The only addition is the `onSent` callback.
+
+`compose.jsx` holds console components shared across the queue, triage, and activity surfaces — hence `CompanyLink` living beside `ComposePanel` rather than being copy-pasted into three files.
+
+- [ ] **Step 0: Add the shared company link**
+
+At the top of `compose.jsx`, before `ComposePanel`, add the component and its CSS (fold these rules into the `CP_CSS` string created in Step 1):
+
+```css
+.cp-colink{ color:inherit; text-decoration:none; }
+.cp-colink:hover{ text-decoration:underline; }
+```
+
+```jsx
+// The company name, linked to their own site. `noopener noreferrer` is required —
+// without it the opened tab gets a window.opener handle back into the console.
+function CompanyLink({ name, domain }) {
+  if (!domain) return <React.Fragment>{name}</React.Fragment>;
+  return (
+    <a className="cp-colink" href={"https://" + domain}
+       target="_blank" rel="noopener noreferrer">{name}</a>
+  );
+}
+```
+
+End the file with both exports:
+
+```jsx
+window.PE.ComposePanel = ComposePanel;
+window.PE.CompanyLink = CompanyLink;
+```
 
 - [ ] **Step 1: Create the shared module**
 
@@ -1357,20 +1389,13 @@ and render `awaiting.map((a) => {` instead of `all.map((a) => {`. Leave the scat
 
 - [ ] **Step 4: Hyperlink the company name**
 
-Replace the name div (line 212):
+Replace the name div (line 212), using the shared component from Task 9 rather than repeating the anchor markup:
 
 ```jsx
                       <div className="tg-card__nm">
-                        <a href={"https://" + a.domain} target="_blank" rel="noopener noreferrer"
-                           style={{ color: "inherit", textDecoration: "none" }}
-                           onMouseOver={(e) => (e.currentTarget.style.textDecoration = "underline")}
-                           onMouseOut={(e) => (e.currentTarget.style.textDecoration = "none")}>
-                          {a.name}
-                        </a>
+                        <PET.CompanyLink name={a.name} domain={a.domain} />
                       </div>
 ```
-
-`rel="noopener noreferrer"` is required — without it the opened tab receives a `window.opener` handle back into the console.
 
 - [ ] **Step 5: Mount the compose panel**
 
@@ -1473,7 +1498,11 @@ In the `mq-right` block, after the Compose toggle (line 231):
 
 - [ ] **Step 4: Hyperlink the company name**
 
-Replace the name div (line 218) with the same anchor pattern used in Task 10 Step 4, substituting `a.name` and `a.domain`.
+Replace the name div (line 218) with the shared component from Task 9:
+
+```jsx
+                  <div className="mq-nm"><PEQ.CompanyLink name={a.name} domain={a.domain} /></div>
+```
 
 - [ ] **Step 5: Verify in the browser**
 

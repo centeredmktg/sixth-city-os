@@ -444,8 +444,8 @@ const AC_CSS = `
   border-radius:var(--radius-lg); box-shadow:var(--shadow-sm); padding:15px 18px; margin-bottom:11px; }
 .ac-row__h{ display:flex; align-items:center; gap:12px; }
 .ac-row__nm{ font-weight:800; font-size:var(--text-md); color:var(--text-strong); }
-.ac-row__nm a{ color:inherit; text-decoration:none; }
-.ac-row__nm a:hover{ text-decoration:underline; }
+
+
 .ac-row__sp{ margin-left:auto; display:flex; align-items:center; gap:9px; }
 .ac-ev{ display:flex; align-items:center; gap:9px; font-size:12px; color:var(--text-body);
   padding:6px 0; border-top:1px solid var(--border-subtle); margin-top:8px; }
@@ -538,7 +538,7 @@ function ActivityScreen({ onError }) {
           <div className="ac-row" key={c.domain}>
             <div className="ac-row__h">
               <div className="ac-row__nm">
-                <a href={"https://" + c.domain} target="_blank" rel="noopener noreferrer">{c.name}</a>
+                <PEA.CompanyLink name={c.name} domain={c.domain} />
               </div>
               <div className="ac-row__sp">
                 {c.hubspot_url && <a className="ac-hs" href={c.hubspot_url} target="_blank" rel="noopener noreferrer">HubSpot →</a>}
