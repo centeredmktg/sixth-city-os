@@ -25,7 +25,12 @@ _REQUIRED = ("discovered", "working")
 
 
 def merged_options(live: dict) -> list[dict]:
-    """The full five-option array. Raises rather than write a partial one."""
+    """The full options array to write back. Raises rather than write a partial one.
+
+    HubSpot's PATCH REPLACES this array, so anything not carried forward is DELETED.
+    Every live option survives in its existing order — including any added in the portal
+    that this script doesn't know about — and the new ones are appended after them.
+    """
     existing = list(live.get("options") or [])
     by_value = {o.get("value"): o for o in existing}
     for required in _REQUIRED:
@@ -33,9 +38,17 @@ def merged_options(live: dict) -> list[dict]:
             raise ValueError(
                 f"live engine_status is missing {required!r} — refusing to write a "
                 f"partial options array that would orphan existing records")
-    merged = [by_value["discovered"], by_value["working"]]
+    known = {"discovered", "working"} | {o["value"] for o in _NEW}
+    for value in by_value:
+        if value not in known:
+            print(f"  [preserve] carrying forward unrecognized live option {value!r}")
+    merged = list(existing)
+    next_order = max((o.get("displayOrder", 0) or 0) for o in existing) + 1
     for option in _NEW:
-        merged.append(by_value.get(option["value"], option))
+        if option["value"] in by_value:
+            continue
+        merged.append({**option, "displayOrder": next_order})
+        next_order += 1
     return merged
 
 

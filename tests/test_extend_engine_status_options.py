@@ -44,6 +44,16 @@ def test_is_idempotent_when_options_already_extended():
         ["discovered", "working", "nurture", "hold", "rejected"]
 
 
+def test_preserves_unrecognized_live_options():
+    """Any option added in the portal that this script doesn't know about is carried forward."""
+    paused = {"label": "Paused", "value": "paused", "displayOrder": 2}
+    merged = ext.merged_options(_live([DISCOVERED, WORKING, paused]))
+    values = [o["value"] for o in merged]
+    assert "paused" in values
+    # Verify order: existing options first, new ones after
+    assert values == ["discovered", "working", "paused", "nurture", "hold", "rejected"]
+
+
 def test_is_not_registered_for_auto_migration():
     from engine.db.auto_migrate import _MIGRATIONS
     assert "engine_status" not in " ".join(m.__name__ for m in _MIGRATIONS)
