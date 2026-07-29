@@ -28,7 +28,7 @@ from engine.db import messages_repo
 from engine.gmail import send as gmail_send
 from engine.gmail import tokens as gmail_tokens
 from engine.models import Message, MessageStatus
-from engine.hubspot.client import HubSpotClient
+from engine.hubspot.client import HubSpotClient, ENGINE_STATUS_BY_DECISION
 from engine.jobs import find_accounts, score_accounts, route_accounts
 from engine.jobs import claim
 from engine.jobs import enrich as enrich_job
@@ -54,6 +54,15 @@ class PushRequest(BaseModel):
     # Applied as the confirmed override so the push job claims it; without this the
     # server reads the stored recommendation (often "nurture") and silently no-ops.
     route: str | None = None
+
+
+class DecideRequest(BaseModel):
+    domains: list[str]
+    decision: str
+
+
+class UndecideRequest(BaseModel):
+    domains: list[str]
 
 
 class OwnerConfig(BaseModel):
@@ -388,6 +397,63 @@ def push(req: PushRequest, session=Depends(db_session)):
     return {"results": results, "claimed": claimed, "count": claimed,
             "pushed": [r for r in results if r["status"] == "claimed"],
             "scoreboard": dashboard.build()}
+
+
+@app.post("/api/decide")
+def decide(req: DecideRequest, session=Depends(db_session)):
+    """Record the operator's Hold/Nurture/Reject and clear the card from every finding
+    surface. The DB write is authoritative — it decides what's in the queue — and the
+    HubSpot engine_status sync is best-effort, reported per domain as `hubspot_synced`.
+    A HubSpot outage must never stop the operator clearing their board. LFG is NOT a
+    decision: it's a promote, and it goes through /api/push."""
+    status_value = ENGINE_STATUS_BY_DECISION.get(req.decision)
+    if status_value is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"unknown decision {req.decision!r} — expected hold, nurture or reject")
+
+    client = HubSpotClient()
+    now = datetime.now(timezone.utc)
+    results, decided = [], 0
+    for dom in req.domains:
+        row = session.get(AccountRow, dom)
+        if row is None:
+            results.append({"domain": dom, "status": "not_found",
+                            "reason": "no such account"})
+            continue
+        row.route_confirmed = True
+        row.route_confirmed_route = req.decision
+        row.route_confirmed_by = "operator"
+        row.decided_at = now
+        decided += 1
+        try:
+            synced = client.set_engine_status(dom, status_value)
+        except Exception as e:   # one firm's HubSpot hiccup never aborts the batch
+            print(f"  [decide] {dom} hubspot sync failed ({type(e).__name__}: {e})")
+            synced = False
+        results.append({"domain": dom, "status": "decided", "hubspot_synced": synced})
+    session.commit()
+    return {"results": results, "decided": decided}
+
+
+@app.post("/api/undecide")
+def undecide(req: UndecideRequest, session=Depends(db_session)):
+    """Return decided firms to the finding surface. Leaves engine_status alone — the
+    next real decision overwrites it, and a firm back in triage is 'discovered' again
+    only in our view, not a fact worth a write."""
+    results, undecided = [], 0
+    for dom in req.domains:
+        row = session.get(AccountRow, dom)
+        if row is None:
+            results.append({"domain": dom, "status": "not_found"})
+            continue
+        row.route_confirmed = False
+        row.route_confirmed_route = None
+        row.decided_at = None
+        undecided += 1
+        results.append({"domain": dom, "status": "undecided"})
+    session.commit()
+    return {"results": results, "undecided": undecided}
 
 
 def _contact_dict(c) -> dict:
