@@ -23,7 +23,7 @@ from engine.config import CONFIG
 from engine.db import repo
 from engine.db.base import make_engine, create_all, make_session_factory
 from engine.db.auto_migrate import run_startup_migrations
-from engine.db.models import AccountRow
+from engine.db.models import AccountRow, MessageRow
 from engine.db import messages_repo
 from engine.gmail import send as gmail_send
 from engine.gmail import tokens as gmail_tokens
@@ -414,7 +414,12 @@ def decide(req: DecideRequest, session=Depends(db_session)):
     surface. The DB write is authoritative — it decides what's in the queue — and the
     HubSpot engine_status sync is best-effort, reported per domain as `hubspot_synced`.
     A HubSpot outage must never stop the operator clearing their board. LFG is NOT a
-    decision: it's a promote, and it goes through /api/push."""
+    decision: it's a promote, and it goes through /api/push.
+
+    Unlike /api/push (which selects from repo.get_candidates and so can only ever act
+    on a row still on the finding surface), this loads rows directly by domain — so it
+    must re-check the same three exits itself. Without this, a stale UI tab can demote
+    an already-pushed (now client-active in HubSpot) or already-emailed row."""
     status_value = ENGINE_STATUS_BY_DECISION.get(req.decision)
     if status_value is None:
         raise HTTPException(
@@ -429,6 +434,17 @@ def decide(req: DecideRequest, session=Depends(db_session)):
         if row is None:
             results.append({"domain": dom, "status": "not_found",
                             "reason": "no such account"})
+            continue
+        if row.pushed:
+            results.append({"domain": dom, "status": "skipped",
+                            "reason": "already pushed — promoted into HubSpot, no longer decidable"})
+            continue
+        sent = (session.query(MessageRow)
+                .filter(MessageRow.company_domain == dom, MessageRow.status == "sent")
+                .first())
+        if sent is not None:
+            results.append({"domain": dom, "status": "skipped",
+                            "reason": "already emailed — first touch sent, no longer decidable"})
             continue
         row.route_confirmed = True
         row.route_confirmed_route = req.decision

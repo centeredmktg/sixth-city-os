@@ -1,5 +1,5 @@
 """Hold/Nurture/Reject persist, clear the card, and never write to a foreign record."""
-from engine.db.models import AccountRow
+from engine.db.models import AccountRow, MessageRow
 from engine.db import repo
 
 
@@ -82,6 +82,71 @@ def test_closer_is_not_a_decision(client, session):
     """LFG goes through /api/push — it's a promote, not a decide."""
     assert client.post("/api/decide",
                        json={"domains": ["x.example"], "decision": "closer"}).status_code == 400
+
+
+def test_pushed_row_is_skipped_not_mutated(client, session, monkeypatch):
+    """C1: a stale tab reject on an already-pushed (client-active in HubSpot) row must
+    not demote it — /api/decide has to enforce the same exit as /api/push, on its own,
+    since it loads rows directly rather than through repo.get_candidates."""
+    import web.server as server
+    calls = []
+    monkeypatch.setattr(server.HubSpotClient, "set_engine_status",
+                        lambda self, domain, status: calls.append(domain) or True)
+    session.add(AccountRow(domain="buckeye.example", name="buckeye.example",
+                           pushed=True, hubspot_id="hs-1"))
+    session.commit()
+
+    body = client.post("/api/decide",
+                       json={"domains": ["buckeye.example"], "decision": "reject"}).json()
+    assert body["decided"] == 0
+    assert body["results"][0]["status"] == "skipped"
+    assert calls == []   # set_engine_status never called for it
+
+    row = session.get(AccountRow, "buckeye.example")
+    assert row.pushed is True
+    assert row.route_confirmed is False
+    assert row.route_confirmed_route is None
+
+
+def test_emailed_row_is_skipped_not_mutated(client, session, monkeypatch):
+    """C1: same guard for the emailed exit — a sent MessageRow means the row already
+    left the finding surface."""
+    import web.server as server
+    calls = []
+    monkeypatch.setattr(server.HubSpotClient, "set_engine_status",
+                        lambda self, domain, status: calls.append(domain) or True)
+    _account(session, "touched.example")
+    session.add(MessageRow(company_domain="touched.example",
+                           contact_email="jane@touched.example", status="sent"))
+    session.commit()
+
+    body = client.post("/api/decide",
+                       json={"domains": ["touched.example"], "decision": "hold"}).json()
+    assert body["decided"] == 0
+    assert body["results"][0]["status"] == "skipped"
+    assert calls == []
+
+    row = session.get(AccountRow, "touched.example")
+    assert row.route_confirmed is False
+
+
+def test_partial_batch_still_decides_the_eligible_row(client, session, monkeypatch):
+    """C1: an ineligible row in the same request must not block an eligible one."""
+    import web.server as server
+    monkeypatch.setattr(server.HubSpotClient, "set_engine_status",
+                        lambda self, domain, status: True)
+    session.add(AccountRow(domain="pushed.example", name="pushed.example", pushed=True))
+    _account(session, "open.example")
+    session.commit()
+
+    body = client.post("/api/decide",
+                       json={"domains": ["pushed.example", "open.example"],
+                             "decision": "hold"}).json()
+    assert body["decided"] == 1
+    by_domain = {r["domain"]: r for r in body["results"]}
+    assert by_domain["pushed.example"]["status"] == "skipped"
+    assert by_domain["open.example"]["status"] == "decided"
+    assert session.get(AccountRow, "open.example").route_confirmed is True
 
 
 def test_undecide_returns_the_firm_to_triage(client, session, monkeypatch):

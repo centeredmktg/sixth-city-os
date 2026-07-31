@@ -130,11 +130,17 @@ def get_candidates(session: Session) -> list[Account]:
     closer-bound: routing is a badge + sort hint, not a gate.
     """
     # ONE subquery, not a per-row lookup: this runs on every load of two screens.
-    sent_domains = select(MessageRow.company_domain).where(MessageRow.status == "sent")
+    # company_domain is nullable in prod (migrate_add_messages.py has no NOT NULL,
+    # even though the ORM declares Mapped[str]) — SQL NOT IN against a set containing
+    # NULL is NULL for every row, so a single null company_domain on a sent message
+    # would blank both screens. isnot(None) keeps the exclusion NULL-safe.
+    sent_domains = (select(MessageRow.company_domain)
+                    .where(MessageRow.status == "sent", MessageRow.company_domain.isnot(None)))
     rows = (session.query(AccountRow)
-            # Batch the relationship loads — _account_from_row touches row.signals
-            # for every account, which is an N+1 without this (cf. bbc7da7).
-            .options(selectinload(AccountRow.signals), selectinload(AccountRow.contacts))
+            # Batch the relationship load — _account_from_row touches row.signals
+            # for every account, which is an N+1 without this (cf. bbc7da7). Nothing
+            # here reads .contacts, so it isn't eager-loaded (was a wasted query/call).
+            .options(selectinload(AccountRow.signals))
             .filter(AccountRow.pushed.is_(False),
                     AccountRow.route_confirmed.is_(False),
                     AccountRow.domain.not_in(sent_domains))
@@ -145,9 +151,10 @@ def get_candidates(session: Session) -> list[Account]:
 
 
 def get_decided(session: Session, decision: str) -> list[Account]:
-    """Firms a human decided on (hold | nurture | reject), newest decision first.
-    Feeds the Activity screen's filter — these left the finding surface but are not
-    gone."""
+    """Firms a human decided on (hold | nurture | reject), returned newest-decision-
+    first — but /api/candidates re-sorts everything by score before it reaches the
+    UI, so that ordering never survives end to end. Feeds the Activity screen's
+    filter — these left the finding surface but are not gone."""
     rows = (session.query(AccountRow)
             # signals only — _account_from_row reads them; nothing here reads .contacts.
             .options(selectinload(AccountRow.signals))

@@ -1,5 +1,8 @@
 """The finding surface has exactly three exits: promoted, decided, emailed."""
+from sqlalchemy import text
+
 from engine.db.base import make_engine, create_all, make_session_factory
+from engine.db.migrate_add_messages import run_migration
 from engine.db.models import AccountRow, MessageRow
 from engine.db import repo
 
@@ -64,6 +67,29 @@ def test_failed_send_reverted_to_draft_stays_in_queue():
                            contact_email="jane@failed.example", status="draft"))
     session.commit()
     assert _domains(session) == {"failed.example"}
+
+
+def test_null_company_domain_on_a_sent_message_does_not_blank_the_query():
+    """I1: prod's messages.company_domain is nullable (migrate_add_messages.py has no
+    NOT NULL, unlike the ORM's Mapped[str] / create_all() DDL) — a single NULL there
+    used to make the `NOT IN` subquery evaluate NULL for every row, returning nothing
+    on both screens. SQLite's create_all() infers NOT NULL from Mapped[str], so it
+    rejects a NULL insert even via raw SQL (verified) — this test drops and rebuilds
+    `messages` using the actual production DDL (no NOT NULL) so the NULL row can exist,
+    reproducing the prod bug for real rather than trusting the fix blindly."""
+    session = _session()
+    engine = session.get_bind()
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE messages"))
+    run_migration(engine)   # recreates `messages` via the prod DDL: no NOT NULL
+
+    _account(session, "open.example")
+    session.execute(text(
+        "INSERT INTO messages (contact_email, company_domain, status) "
+        "VALUES ('jane@example.com', NULL, 'sent')"))
+    session.commit()
+
+    assert _domains(session) == {"open.example"}
 
 
 def test_query_count_is_flat_regardless_of_row_count():

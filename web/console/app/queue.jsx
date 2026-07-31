@@ -96,6 +96,10 @@ function MorningQueue({ onConfirmed, onError }) {
       const row = (res.results || []).find((x) => x.domain === domain);
       if (row && row.status === "decided") {
         setGone((g) => ({ ...g, [domain]: true }));
+        if (row.hubspot_synced === false) {
+          onError && onError(new Error(
+            `Saved reject for ${domain}, but HubSpot didn't take the status write.`));
+        }
         // refresh() swallows its own fetch failures and always resolves — safe inside
         // this try; it can't cause a false "not rejected" rollback after a real success.
         await PEQ.refresh();
