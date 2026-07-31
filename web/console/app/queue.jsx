@@ -57,12 +57,13 @@ function MorningQueue({ onConfirmed, onError }) {
   const [done, setDone] = useStateQ({});
   const [busy, setBusy] = useStateQ({});   // domain -> true while ITS push is in flight (per-row, not page-wide)
   const [open, setOpen] = useStateQ({});   // domain -> compose/send panel expanded
+  const [gone, setGone] = useStateQ({});   // domain -> true (rejected off the list)
 
   // Today's worklist: net-new with a CONFIRMED in-market signal (actively running
   // ads / hiring / just launched) — the firms a real buying signal says to work NOW.
   // Best-first. Unknown-timing firms aren't buried here; they're for qualification.
   const queue = (PEQ.STREAM || [])
-    .filter((a) => a.netNew === true && a.inMarket === "confirmed")
+    .filter((a) => a.netNew === true && a.inMarket === "confirmed" && !gone[a.domain])
     .sort((x, y) => (y.total || 0) - (x.total || 0))
     .slice(0, TOP_N);
   const left = queue.filter((a) => !done[a.domain]);
@@ -81,6 +82,25 @@ function MorningQueue({ onConfirmed, onError }) {
       } else {
         // Server pushed nothing for this firm — surface why instead of faking success.
         onError && onError(new Error(r && r.reason ? r.reason : "Not worked — this firm wasn't moved into your pipeline"));
+      }
+    } catch (e) { onError && onError(e); }
+    finally { setBusy((b) => { const n = { ...b }; delete n[domain]; return n; }); }
+  }
+
+  // Same decision path as the Triage Board's decide() — identical row, identical endpoint.
+  async function reject(domain) {
+    if (busy[domain] || gone[domain]) return;
+    setBusy((b) => ({ ...b, [domain]: true }));
+    try {
+      const res = await PEQ.decideDomains([domain], "reject");
+      const row = (res.results || []).find((x) => x.domain === domain);
+      if (row && row.status === "decided") {
+        setGone((g) => ({ ...g, [domain]: true }));
+        // refresh() swallows its own fetch failures and always resolves — safe inside
+        // this try; it can't cause a false "not rejected" rollback after a real success.
+        await PEQ.refresh();
+      } else {
+        onError && onError(new Error("Not rejected — " + domain));
       }
     } catch (e) { onError && onError(e); }
     finally { setBusy((b) => { const n = { ...b }; delete n[domain]; return n; }); }
@@ -120,7 +140,7 @@ function MorningQueue({ onConfirmed, onError }) {
               <div className={"mq-card" + (isDone ? " mq-card--done" : "")}>
                 <div className="mq-rank">{i + 1}</div>
                 <div style={{ minWidth: 0 }}>
-                  <div className="mq-nm">{a.name}</div>
+                  <div className="mq-nm"><PEQ.CompanyLink name={a.name} domain={a.domain} /></div>
                   <div className="mq-meta">{a.domain} · {PEQ.Vertical[a.vertical] || a.vertical}{a.city ? " · " + a.city : ""} · <BadgeQ tone={a.band === "A" ? "green" : "neutral"} variant="soft" size="sm">Band {a.band || "—"}</BadgeQ></div>
                   <div className="mq-why">
                     <span className="mq-why__ic"><WhyI size={13} /></span>
@@ -134,6 +154,8 @@ function MorningQueue({ onConfirmed, onError }) {
                     ? <div className="mq-done"><IcoQ.CheckCheck size={16} /> Working</div>
                     : <BtnQ variant="primary" size="sm" icon={<IcoQ.Check size={14} />} disabled={!!busy[a.domain]} onClick={() => work(a.domain)}>{busy[a.domain] ? "Starting…" : "Confirm → work"}</BtnQ>}
                   <BtnQ variant="ghost" size="sm" onClick={() => setOpen((o) => ({ ...o, [a.domain]: !o[a.domain] }))}>{open[a.domain] ? "Close" : "Compose ▾"}</BtnQ>
+                  <BtnQ variant="ghost" size="sm" disabled={!!busy[a.domain]}
+                    onClick={() => reject(a.domain)}>Reject</BtnQ>
                 </div>
               </div>
               {open[a.domain] && <PEQ.ComposePanel account={a} onError={onError} />}
