@@ -116,14 +116,44 @@ function TriageBoard({ onConfirmed, onError }) {
   const all = useMemoT(() => PET.STREAM.filter((a) => a.dedupe !== "merged"), [PET.STREAM]);
   const [overrides, setOverrides] = useStateT({});   // domain -> route key (operator override)
   const [confirmed, setConfirmed] = useStateT({});    // domain -> true (pushed)
+  const [decided, setDecided] = useStateT({});        // domain -> true (left the board)
   const [busy, setBusy] = useStateT({});              // domain -> true while ITS push is in flight (per-row, not page-wide)
   const [finding, setFinding] = useStateT({});        // domain -> true while contact discovery runs
   const [found, setFound] = useStateT({});            // domain -> {contacts, general_phone, phone_source}
+  const [composing, setComposing] = useStateT({});    // domain -> compose panel expanded
 
   const routeOf = (a) => overrides[a.domain] || a.route || "nurture";
   const setRoute = (domain, key) => setOverrides((o) => ({ ...o, [domain]: key }));
 
-  const awaiting = all.filter((a) => !confirmed[a.domain]);
+  // Hold/Nurture/Reject persist to the server and clear the card. LFG is NOT here —
+  // it's a promote, and it goes through confirm()/api/push.
+  async function decide(domain, decision) {
+    if (busy[domain] || decided[domain]) return;
+    setOverrides((o) => ({ ...o, [domain]: decision }));   // reflect the click immediately
+    setBusy((b) => ({ ...b, [domain]: true }));
+    try {
+      const res = await PET.decideDomains([domain], decision);
+      const row = (res.results || []).find((x) => x.domain === domain);
+      if (row && row.status === "decided") {
+        setDecided((d) => ({ ...d, [domain]: true }));
+        if (row.hubspot_synced === false) {
+          onError && onError(new Error(
+            `Saved ${decision} for ${domain}, but HubSpot didn't take the status write.`));
+        }
+        await PET.refresh();
+      } else {
+        // Never optimistically clear — put the toggle back where it was.
+        setOverrides((o) => { const n = { ...o }; delete n[domain]; return n; });
+        onError && onError(new Error(
+          "Not saved — " + domain + ((row && row.reason) ? `: ${row.reason}` : "")));
+      }
+    } catch (e) {
+      setOverrides((o) => { const n = { ...o }; delete n[domain]; return n; });
+      onError && onError(e);
+    } finally { setBusy((b) => { const n = { ...b }; delete n[domain]; return n; }); }
+  }
+
+  const awaiting = all.filter((a) => !confirmed[a.domain] && !decided[a.domain]);
   const counts = ROUTES.reduce((m, r) => (m[r.key] = all.filter((a) => routeOf(a) === r.key).length, m), {});
   const obvious = awaiting.filter((a) => routeOf(a) === "closer" && a.band === "A").map((a) => a.domain);
   const bulkBusy = obvious.some((d) => busy[d]);   // bulk button reflects only its own in-flight set
@@ -203,13 +233,15 @@ function TriageBoard({ onConfirmed, onError }) {
 
           <div className="tg-grid">
             <div>
-              {all.map((a) => {
+              {awaiting.map((a) => {
                 const r = routeOf(a);
                 const done = confirmed[a.domain];
                 return (
                   <div className={"tg-card" + (done ? " tg-card--done" : "")} key={a.domain}>
                     <div>
-                      <div className="tg-card__nm">{a.name}</div>
+                      <div className="tg-card__nm">
+                        <PET.CompanyLink name={a.name} domain={a.domain} />
+                      </div>
                       <div className="tg-card__meta">{a.domain} · {PET.Vertical[a.vertical] || a.vertical}{a.city ? " · " + a.city : ""}</div>
                       <div className="tg-card__why">
                         {a.inMarket === "confirmed"
@@ -243,7 +275,11 @@ function TriageBoard({ onConfirmed, onError }) {
                         <React.Fragment>
                           <div className="tg-seg">
                             {ROUTES.map((x) => (
-                              <button key={x.key} className={r === x.key ? "on" : ""} onClick={() => setRoute(a.domain, x.key)}>{x.label}</button>
+                              <button key={x.key} className={r === x.key ? "on" : ""}
+                                disabled={!!busy[a.domain]}
+                                onClick={() => x.key === "closer"
+                                  ? setRoute(a.domain, x.key)
+                                  : decide(a.domain, x.key)}>{x.label}</button>
                             ))}
                           </div>
                           {r === "closer"
@@ -289,7 +325,15 @@ function TriageBoard({ onConfirmed, onError }) {
                         // promoted ONLY when NO sendable contact exists — an emailless Apollo
                         // person (common for SMB) must not hide a discovered phone.
                         const sendable = fc.contacts.filter((c) => c.email);
-                        if (sendable.length) return <div className="tg-crows">{sendable.map(crow)}</div>;
+                        if (sendable.length) return (
+                          <React.Fragment>
+                            <div className="tg-crows">{sendable.map(crow)}</div>
+                            <button className="tg-find" style={{ marginTop: 8 }}
+                              onClick={() => setComposing((c) => ({ ...c, [a.domain]: !c[a.domain] }))}>
+                              {composing[a.domain] ? "Close" : "Compose"}
+                            </button>
+                          </React.Fragment>
+                        );
                         const namesOnly = fc.contacts.filter((c) => !c.email);
                         if (namesOnly.length || callChip) return (
                           <div className="tg-crows">
@@ -301,6 +345,7 @@ function TriageBoard({ onConfirmed, onError }) {
                           return <span className="tg-none">Couldn’t look up contacts — try again.</span>;
                         return <span className="tg-none">No contact found.</span>;
                       })()}
+                      {composing[a.domain] && <PET.ComposePanel account={a} onError={onError} />}
                     </div>
                   </div>
                 );

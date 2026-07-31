@@ -211,6 +211,29 @@ async function pushDomains(domains, route) {
   return j;   // { results:[{domain,status,hubspot_id,reason}], claimed, count, pushed }
 }
 
+/* Record the operator's Hold/Nurture/Reject. The DB write is authoritative; a false
+   `hubspot_synced` means the decision stuck locally but HubSpot didn't take the
+   engine_status write — surface it, don't fail the decision. */
+async function decideDomains(domains, decision) {
+  const r = await fetch("/api/decide", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domains, decision }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || ("Decide failed (" + r.status + ")"));
+  return j;   // { results:[{domain,status,hubspot_synced}], decided }
+}
+
+async function undecideDomains(domains) {
+  const r = await fetch("/api/undecide", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ domains }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.detail || ("Undecide failed (" + r.status + ")"));
+  return j;
+}
+
 async function ingestFile(file) {
   const fd = new FormData();
   fd.append("file", file);
@@ -252,7 +275,8 @@ async function sendMessage(id) {
 Object.assign(window.PE, {
   Vertical, SignalKind, RUN, STAGES, STATUS, ROLE,
   ACTIVE_SOURCES, ONDECK_SOURCES, STREAM,
-  siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, pushDomains, fetchScoreboard, fetchAdded,
+  siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, pushDomains, decideDomains, undecideDomains,
+  fetchScoreboard, fetchAdded,
   pursueDomains, fetchContacts, composeMessage, editMessage, sendMessage, LAST_INGEST: null,
   ops: { name: "John Sammon", title: "Owner / Sixth City" },
   danny: { name: "Danny Cox", title: "Pipeline Ops" },
