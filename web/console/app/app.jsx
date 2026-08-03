@@ -29,6 +29,7 @@ function Sidebar({ view, onNav, netNew }) {
     { id: "ingestion", label: "Ingestion", icon: P.Icons.Database, count: netNew },
     { id: "queue", label: "Morning Queue", icon: P.Icons.Sunrise },
     { id: "triage", label: "Triage Board", icon: P.Icons.Route, count: netNew },
+    { id: "activity", label: "Activity", icon: P.Icons.Layers },
     { id: "scoreboard", label: "Scoreboard", icon: P.Icons.Scale },
     { id: "accounts", label: "Accounts", icon: P.Icons.Building },
     { id: "scoring", label: "Scoring", icon: P.Icons.Sliders },
@@ -100,8 +101,8 @@ function Topbar({ title, sub }) {
 }
 
 // Deep-linkable routes — each nav view has a persistent URL (bookmark/refresh/back work).
-const VIEW_PATH = { ingestion: "/", queue: "/queue", triage: "/triage", scoreboard: "/scoreboard", accounts: "/accounts", scoring: "/scoring" };
-const PATH_VIEW = { "/": "ingestion", "/ingestion": "ingestion", "/queue": "queue", "/triage": "triage", "/scoreboard": "scoreboard", "/accounts": "accounts", "/scoring": "scoring" };
+const VIEW_PATH = { ingestion: "/", queue: "/queue", triage: "/triage", activity: "/activity", scoreboard: "/scoreboard", accounts: "/accounts", scoring: "/scoring" };
+const PATH_VIEW = { "/": "ingestion", "/ingestion": "ingestion", "/queue": "queue", "/triage": "triage", "/activity": "activity", "/scoreboard": "scoreboard", "/accounts": "accounts", "/scoring": "scoring" };
 const viewFromPath = () => PATH_VIEW[window.location.pathname] || "ingestion";
 
 function App() {
@@ -153,6 +154,7 @@ function App() {
   const titles = {
     queue: ["Morning Queue", "Start here — today's highest-priority net-new to work"],
     triage: ["Triage Board", "Confirm or override routing — the human-in-the-loop gate"],
+    activity: ["Activity", "What the engine and the team actually did"],
     accounts: ["Accounts", "The book — every scored account + its evidence trail"],
     scoreboard: ["Engine Impact", "What the engine is producing for your pipeline"],
     scoring: ["Scoring", "Tune the rubric — how accounts rank, and what counts as perfect-fit"],
@@ -174,6 +176,8 @@ function App() {
               ? <P.MorningQueue onConfirmed={triageConfirmed} onError={pushError} />
             : view === "triage"
               ? <P.TriageBoard onConfirmed={triageConfirmed} onError={pushError} />
+            : view === "activity"
+              ? <P.ActivityScreen onError={pushError} />
             : view === "accounts"
               ? <P.AccountsScreen />
             : view === "scoreboard"
