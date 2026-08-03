@@ -241,17 +241,19 @@ def build(session: Session, include: set[str] | None = None, limit: int = 100) -
             entry["hubspot_url"] = hubspot_links.record_url(company_hubspot_id=row.hubspot_id)
         return entry
 
-    if "saved" in include:
-        for row in claimed_rows:
-            _slot(row.domain, row)["events"].append({
-                "type": "saved", "at": _iso(row.claimed_at), "source": "engine",
-                "detail": row.discovered_by or "", "by": ""})
+    # Every event type is always collected onto its company. `include` decides
+    # which COMPANIES qualify for the view (below) — not which events display
+    # once a company is in. A company admitted because it was emailed still
+    # shows its saved/decided history; that's the whole point of the screen.
+    for row in claimed_rows:
+        _slot(row.domain, row)["events"].append({
+            "type": "saved", "at": _iso(row.claimed_at), "source": "engine",
+            "detail": row.discovered_by or "", "by": ""})
 
-    if "decided" in include:
-        for row in decided_rows:
-            _slot(row.domain, row)["events"].append({
-                "type": "decided", "at": _iso(row.decided_at), "source": "engine",
-                "detail": row.route_confirmed_route or "", "by": row.route_confirmed_by or ""})
+    for row in decided_rows:
+        _slot(row.domain, row)["events"].append({
+            "type": "decided", "at": _iso(row.decided_at), "source": "engine",
+            "detail": row.route_confirmed_route or "", "by": row.route_confirmed_by or ""})
 
     sent_domains = {m.company_domain for m in sent_rows}
     rows_by_domain = {r.domain: r for r in claimed_rows + decided_rows}
@@ -261,9 +263,13 @@ def build(session: Session, include: set[str] | None = None, limit: int = 100) -
             "type": "emailed", "at": _iso(m.sent_at), "source": "engine",
             "detail": m.contact_email or "", "by": m.sent_by or ""})
 
-    # Default view is companies we actually touched.
-    companies = [c for c in acc.values()
-                 if include != _DEFAULT_INCLUDE or c["domain"] in sent_domains]
+    # Emailed always qualifies (the default); saved/decided widen the set.
+    visible = set(sent_domains)
+    if "saved" in include:
+        visible |= {row.domain for row in claimed_rows}
+    if "decided" in include:
+        visible |= {row.domain for row in decided_rows}
+    companies = [c for c in acc.values() if c["domain"] in visible]
 
     for c in companies:
         c["events"].sort(key=lambda e: e["at"] or "", reverse=True)
