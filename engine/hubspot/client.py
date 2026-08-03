@@ -15,10 +15,10 @@ Auth is an account-scoped Service Key (HUBSPOT_TOKEN, Bearer). No token -> dry m
 from __future__ import annotations
 
 import time
-from datetime import date
 
 import requests
 
+from engine.clock import local_today
 from engine.config import CONFIG
 from engine.models import Account, Attribution, Outreach
 from engine.modules import hubspot_context
@@ -169,7 +169,7 @@ class HubSpotClient:
             "domain": account.domain,
             MACHINE_SOURCED_PROPERTY: "true",
             SOURCE_PROVENANCE_PROPERTY: account.discovered_by,
-            MACHINE_SOURCED_DATE_PROPERTY: date.today().isoformat(),
+            MACHINE_SOURCED_DATE_PROPERTY: local_today(),
         }})
         new_id = created["id"]
         account.__dict__["claimed"] = True   # genuinely created + stamped machine_sourced
@@ -213,7 +213,7 @@ class HubSpotClient:
             "domain": account.domain,
             MACHINE_SOURCED_PROPERTY: "true",
             SOURCE_PROVENANCE_PROPERTY: account.discovered_by,
-            MACHINE_SOURCED_DATE_PROPERTY: date.today().isoformat(),
+            MACHINE_SOURCED_DATE_PROPERTY: local_today(),
             ENGINE_STATUS_PROPERTY: "discovered",
             **hubspot_context.context_properties(account),
             "hubspot_owner_id": owner_id,
@@ -285,7 +285,7 @@ class HubSpotClient:
             "domain": account.domain,
             MACHINE_SOURCED_PROPERTY: "true",
             SOURCE_PROVENANCE_PROPERTY: account.discovered_by,
-            MACHINE_SOURCED_DATE_PROPERTY: date.today().isoformat(),
+            MACHINE_SOURCED_DATE_PROPERTY: local_today(),
             ENGINE_STATUS_PROPERTY: "working",
             **hubspot_context.context_properties(account),
             "hubspot_owner_id": owner_id,
