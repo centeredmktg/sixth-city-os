@@ -21,61 +21,68 @@
 
 ---
 
-### Task 1: `machine_sourced_date` in Eastern time
+### Task 1: Derived dates in Cleveland time
 
 **Files:**
-- Modify: `engine/hubspot/client.py:167`, `:211`, `:283`
-- Test: `tests/test_machine_sourced_date_tz.py`
+- Create: `engine/clock.py`
+- Modify: `engine/hubspot/client.py:172`, `:216`, `:288`; `engine/modules/hubspot_context.py:33`
+- Test: `tests/test_local_date_tz.py`
 
 **Interfaces:**
 - Consumes: nothing
-- Produces: `engine.hubspot.client.sourced_date() -> str` — today's date in `America/New_York` as `YYYY-MM-DD`.
+- Produces: `engine.clock.local_today() -> str` — today's date in `America/New_York` as `YYYY-MM-DD`.
 
-**The bug:** `date.today()` resolves against the server clock, which is UTC on Railway. A company claimed after 8pm Eastern gets stamped with *tomorrow's* date, disagreeing with HubSpot's own `createdate` sitting beside it in the `pipeline_engine` property group. That disagreement is what the operator reported as "create date is off."
+**The bug:** `date.today()` resolves against the server clock, which is UTC on Railway. A company claimed after 8pm Eastern is stamped with *tomorrow's* date, disagreeing with HubSpot's own `createdate` sitting beside it in the `pipeline_engine` property group. That disagreement is what the operator reported as "create date is off."
+
+**Why a new module rather than a helper in `client.py`:** there are FOUR call sites across two packages, not three. `engine/hubspot/client.py` already imports `engine.modules.hubspot_context`, so putting the helper in either of those files and importing it from the other creates a cycle. `engine/clock.py` is a neutral leaf both can import.
+
+**`engine_last_synced` is safe to change:** `hubspot_context.context_hash` deliberately excludes `PROP_SYNCED` from the stable hash, so correcting its value cannot trigger spurious re-syncs.
 
 - [ ] **Step 1: Write the failing test**
 
-Create `tests/test_machine_sourced_date_tz.py`:
+Create `tests/test_local_date_tz.py`:
 
 ```python
 """Derived dates are Cleveland's, not the server's. Railway runs UTC, so an evening
-claim was landing on tomorrow's date and disagreeing with HubSpot's createdate."""
+claim was landing on tomorrow's date and disagreeing with HubSpot's own createdate."""
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+from engine import clock
 from engine.hubspot import client as hs
+from engine.modules import hubspot_context
 
 
 def _at(monkeypatch, instant_utc):
-    """Freeze wall-clock at a given UTC instant."""
+    """Freeze wall-clock at a given UTC instant, for engine.clock only."""
     class _DT(datetime):
         @classmethod
         def now(cls, tz=None):
             return instant_utc.astimezone(tz) if tz else instant_utc
-    monkeypatch.setattr(hs, "datetime", _DT)
+    monkeypatch.setattr(clock, "datetime", _DT)
 
 
 def test_evening_in_cleveland_is_still_today(monkeypatch):
     """2026-07-29 02:00 UTC is 2026-07-28 22:00 EDT — the date must be the 28th."""
     _at(monkeypatch, datetime(2026, 7, 29, 2, 0, tzinfo=timezone.utc))
-    assert hs.sourced_date() == "2026-07-28"
+    assert clock.local_today() == "2026-07-28"
 
 
 def test_midday_is_unambiguous(monkeypatch):
     _at(monkeypatch, datetime(2026, 7, 29, 16, 0, tzinfo=timezone.utc))
-    assert hs.sourced_date() == "2026-07-29"
+    assert clock.local_today() == "2026-07-29"
 
 
 def test_follows_dst_in_summer(monkeypatch):
     """July is EDT (UTC-4): 03:30 UTC is still the previous day locally."""
     _at(monkeypatch, datetime(2026, 7, 15, 3, 30, tzinfo=timezone.utc))
-    assert hs.sourced_date() == "2026-07-14"
+    assert clock.local_today() == "2026-07-14"
 
 
 def test_follows_dst_in_winter(monkeypatch):
     """January is EST (UTC-5): 04:30 UTC is still the previous day locally."""
     _at(monkeypatch, datetime(2026, 1, 15, 4, 30, tzinfo=timezone.utc))
-    assert hs.sourced_date() == "2026-01-14"
+    assert clock.local_today() == "2026-01-14"
 
 
 def test_is_not_a_fixed_offset():
@@ -104,46 +111,80 @@ def test_claim_stamps_the_eastern_date(monkeypatch):
 
     _C().claim_company(Account(name="Buckeye", domain="buckeye.example"), owner_id="42")
     assert posted[hs.MACHINE_SOURCED_DATE_PROPERTY] == "2026-07-28"
+
+
+def test_context_properties_stamps_the_eastern_date(monkeypatch):
+    """The fourth call site — engine_last_synced had the same UTC bug."""
+    _at(monkeypatch, datetime(2026, 7, 29, 2, 0, tzinfo=timezone.utc))
+    from engine.models import Account
+
+    props = hubspot_context.context_properties(Account(name="Buckeye", domain="buckeye.example"))
+    assert props[hubspot_context.PROP_SYNCED] == "2026-07-28"
+
+
+def test_context_hash_ignores_the_synced_date(monkeypatch):
+    """Changing the date must not make unchanged accounts look dirty and re-sync."""
+    from engine.models import Account
+    a = Account(name="Buckeye", domain="buckeye.example")
+    _at(monkeypatch, datetime(2026, 7, 29, 2, 0, tzinfo=timezone.utc))
+    first = hubspot_context.context_hash(a)
+    _at(monkeypatch, datetime(2026, 8, 14, 16, 0, tzinfo=timezone.utc))
+    assert hubspot_context.context_hash(a) == first
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pytest tests/test_machine_sourced_date_tz.py -v`
-Expected: FAIL — `AttributeError: module 'engine.hubspot.client' has no attribute 'sourced_date'`
+Run: `python3 -m pytest tests/test_local_date_tz.py -v`
+Expected: FAIL — `ModuleNotFoundError: No module named 'engine.clock'`
 
-- [ ] **Step 3: Implement the helper**
+- [ ] **Step 3: Create the module**
 
-In `engine/hubspot/client.py`, change the datetime import to include what's needed and add the helper beside the property constants:
+Create `engine/clock.py`:
 
 ```python
+"""
+Wall-clock helpers.
+
+Sixth City is in Cleveland; Railway runs its containers in UTC. Every date WE derive
+and write outward has to be Cleveland's, or an evening claim lands on tomorrow and
+disagrees with HubSpot's own createdate sitting beside it on the record.
+
+Timestamps still STORE in UTC — this is only for dates at the edge.
+"""
+from __future__ import annotations
+
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# Sixth City is in Cleveland; Railway runs UTC. Every date WE derive is Cleveland's,
-# or an evening claim lands on tomorrow and disagrees with HubSpot's own createdate.
-# The zone, not a fixed -5 — it has to follow DST.
-_LOCAL_TZ = ZoneInfo("America/New_York")
+# The zone, never a fixed -5: it has to follow DST or it's wrong eight months a year.
+LOCAL_TZ = ZoneInfo("America/New_York")
 
 
-def sourced_date() -> str:
+def local_today() -> str:
     """Today's date where the business actually is, as YYYY-MM-DD."""
-    return datetime.now(_LOCAL_TZ).date().isoformat()
+    return datetime.now(LOCAL_TZ).date().isoformat()
 ```
 
-- [ ] **Step 4: Use it at all three call sites**
+- [ ] **Step 4: Use it at all FOUR call sites**
 
-Replace `date.today().isoformat()` with `sourced_date()` at `engine/hubspot/client.py:167`, `:211`, and `:283`. Remove the now-unused `date` import if nothing else uses it — run `grep -n "date\." engine/hubspot/client.py` to check before removing.
+In `engine/hubspot/client.py`, add `from engine.clock import local_today` to the imports and replace `date.today().isoformat()` at `:172`, `:216`, and `:288` with `local_today()`.
+
+In `engine/modules/hubspot_context.py`, add the same import and replace `date.today().isoformat()` at `:33` with `local_today()`.
+
+In each file, drop the now-unused `date` import only if nothing else uses it — check with `grep -n "date\." <file>` before removing.
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `pytest tests/test_machine_sourced_date_tz.py tests/test_claim_company.py tests/test_promote_and_push.py -v`
-Expected: PASS
+Run: `python3 -m pytest tests/test_local_date_tz.py tests/test_claim_company.py tests/test_promote_and_push.py tests/test_hubspot_context.py tests/test_sync_context_job.py -v`
+Expected: PASS. The context tests matter most — they prove the hash behaviour is unchanged.
+
+Then the full suite: `python3 -m pytest -q`
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add engine/hubspot/client.py tests/test_machine_sourced_date_tz.py
-git commit -m "fix(hubspot): stamp machine_sourced_date in Cleveland time, not UTC"
+git add engine/clock.py engine/hubspot/client.py engine/modules/hubspot_context.py tests/test_local_date_tz.py
+git commit -m "fix(hubspot): derive dates in Cleveland time, not the UTC server clock"
 ```
 
 **Note on existing rows:** not backfilled. A handful of records are off by a day; rewriting historical provenance stamps to fix cosmetics is the worse trade.
