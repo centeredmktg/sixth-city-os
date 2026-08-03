@@ -7,9 +7,10 @@ un-push a claimed firm.
 
 from __future__ import annotations
 
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
-from engine.db.models import AccountRow, SignalRow, ContactRow
+from engine.db.models import AccountRow, SignalRow, ContactRow, MessageRow
 from engine.models import (
     Account, Signal, SignalKind, Vertical, Score, RouteDecision, Route, Stage, Contact,
 )
@@ -24,6 +25,7 @@ def _row_from_account(a: Account) -> AccountRow:
         claimed=getattr(a, "claimed", False),
         claimed_at=getattr(a, "claimed_at", None),
         context_hash=getattr(a, "context_hash", None),
+        decided_at=getattr(a, "decided_at", None),
     )
     if a.score:
         row.fit = a.score.fit
@@ -73,6 +75,7 @@ def _account_from_row(row: AccountRow) -> Account:
     a.__dict__["claimed"] = bool(row.claimed)
     a.__dict__["claimed_at"] = row.claimed_at
     a.__dict__["context_hash"] = row.context_hash
+    a.__dict__["decided_at"] = row.decided_at
     return a
 
 
@@ -95,6 +98,13 @@ def upsert_accounts(session: Session, accounts: list[Account]) -> None:
             # Preserve the pursued state + sourced contacts so a re-ingest never wipes
             # decision-makers we already paid Apollo to find.
             new_row.pursued = existing.pursued or new_row.pursued
+            # A human's Hold/Nurture/Reject outlives re-ingest — otherwise tomorrow's
+            # Clay export resurrects every company the operator already rejected.
+            if existing.route_confirmed:
+                new_row.route_confirmed = True
+                new_row.route_confirmed_route = existing.route_confirmed_route
+                new_row.route_confirmed_by = existing.route_confirmed_by
+                new_row.decided_at = existing.decided_at
             new_row.contacts = [
                 ContactRow(name=c.name, title=c.title, email=c.email,
                            linkedin_url=c.linkedin_url, seniority=c.seniority, source=c.source)
@@ -107,15 +117,52 @@ def upsert_accounts(session: Session, accounts: list[Account]) -> None:
 
 
 def get_candidates(session: Session) -> list[Account]:
-    """Net-new unpushed firms, ranked best-first — the triage queue. We surface the
-    WHOLE sorted list (dump-and-sort), not just closer-bound: routing is a badge +
-    sort hint, not a gate. The operator works top-down and picks what to push.
-    (The DB holds both net-new and in-book firms; in-book rows carry net_new=False
-    and are shown flagged, not filtered out.)"""
-    rows = session.query(AccountRow).filter(AccountRow.pushed.is_(False)).all()
+    """The finding surface: firms not yet worked, ranked best-first. A firm leaves
+    this list through exactly three exits, and never by being deleted —
+    the row persists so re-ingest still dedupes against it:
+
+      promoted  pushed = True                (LFG confirmed -> HubSpot working)
+      decided   route_confirmed = True       (human called Hold/Nurture/Reject)
+      emailed   a sent message for the domain (the first touch went out)
+
+    Both the Morning Queue and the Triage Board read this, so an exit clears the
+    card from both. We surface the WHOLE sorted list (dump-and-sort), not just
+    closer-bound: routing is a badge + sort hint, not a gate.
+    """
+    # ONE subquery, not a per-row lookup: this runs on every load of two screens.
+    # company_domain is nullable in prod (migrate_add_messages.py has no NOT NULL,
+    # even though the ORM declares Mapped[str]) — SQL NOT IN against a set containing
+    # NULL is NULL for every row, so a single null company_domain on a sent message
+    # would blank both screens. isnot(None) keeps the exclusion NULL-safe.
+    sent_domains = (select(MessageRow.company_domain)
+                    .where(MessageRow.status == "sent", MessageRow.company_domain.isnot(None)))
+    rows = (session.query(AccountRow)
+            # Batch the relationship load — _account_from_row touches row.signals
+            # for every account, which is an N+1 without this (cf. bbc7da7). Nothing
+            # here reads .contacts, so it isn't eager-loaded (was a wasted query/call).
+            .options(selectinload(AccountRow.signals))
+            .filter(AccountRow.pushed.is_(False),
+                    AccountRow.route_confirmed.is_(False),
+                    AccountRow.domain.not_in(sent_domains))
+            .all())
     accounts = [_account_from_row(r) for r in rows]
     accounts.sort(key=lambda a: (a.score.total if a.score else 0.0), reverse=True)
     return accounts
+
+
+def get_decided(session: Session, decision: str) -> list[Account]:
+    """Firms a human decided on (hold | nurture | reject), returned newest-decision-
+    first — but /api/candidates re-sorts everything by score before it reaches the
+    UI, so that ordering never survives end to end. Feeds the Activity screen's
+    filter — these left the finding surface but are not gone."""
+    rows = (session.query(AccountRow)
+            # signals only — _account_from_row reads them; nothing here reads .contacts.
+            .options(selectinload(AccountRow.signals))
+            .filter(AccountRow.route_confirmed.is_(True),
+                    AccountRow.route_confirmed_route == decision)
+            .order_by(AccountRow.decided_at.desc().nullslast())
+            .all())
+    return [_account_from_row(r) for r in rows]
 
 
 def mark_pushed(session: Session, domain: str, hubspot_id: str) -> None:

@@ -37,6 +37,11 @@ SOURCE_PROVENANCE_PROPERTY = "machine_source_origin"
 MACHINE_SOURCED_DATE_PROPERTY = "machine_sourced_date"
 ENGINE_STATUS_PROPERTY = "engine_status"   # discovered -> working (hygiene filter)
 
+# Operator decision key -> engine_status option value. "reject" is stored as
+# "rejected" because that's the HubSpot option label the portal already reads.
+ENGINE_STATUS_BY_DECISION = {"hold": "hold", "nurture": "nurture", "reject": "rejected"}
+_VALID_ENGINE_STATUSES = {"discovered", "working", "nurture", "hold", "rejected"}
+
 
 class HubSpotClient:
     def __init__(self) -> None:
@@ -286,6 +291,25 @@ class HubSpotClient:
             "hubspot_owner_id": owner_id,
         }})
         return created["id"]
+
+    def set_engine_status(self, domain: str, status: str) -> bool:
+        """PATCH engine_status on a company WE sourced. Mirrors promote_to_working's
+        ownership guard: John's pre-existing records are never written to. Dry mode
+        writes nothing. Returns True only on a real successful write, so the caller
+        can report a HubSpot sync failure without failing the operator's decision
+        (the DB is authoritative for what's in the queue)."""
+        if status not in _VALID_ENGINE_STATUSES:
+            raise ValueError(f"unknown engine_status {status!r}")
+        if self._dry:
+            print(f"  [DRY] would set {ENGINE_STATUS_PROPERTY}={status} on {domain}")
+            return False
+        company_id, is_ours = self._find_company_ours(domain)
+        if not company_id or not is_ours:
+            print(f"  [skip] {domain} — not an engine-sourced company, not writing")
+            return False
+        self._patch(f"/crm/v3/objects/companies/{company_id}",
+                    {"properties": {ENGINE_STATUS_PROPERTY: status}})
+        return True
 
     def _write_contact(self, company_id: str, contact: dict | None) -> None:
         """Create a Contact from the site-scraped email/phone and associate it to the
