@@ -16,6 +16,12 @@ def _at(day, hour=12):
     return datetime(2026, 7, day, hour, tzinfo=timezone.utc)
 
 
+def _at_naive(day, hour=12):
+    """What Postgres actually hands back for sent_at (plain TIMESTAMP column) —
+    a naive datetime that is UTC in fact but carries no offset."""
+    return datetime(2026, 7, day, hour)
+
+
 def _saved(session, domain, day=22):
     session.add(AccountRow(domain=domain, name=domain.split(".")[0].title(),
                            claimed=True, claimed_at=_at(day),
@@ -23,9 +29,20 @@ def _saved(session, domain, day=22):
     session.commit()
 
 
-def _emailed(session, domain, email="jane@x.com", day=29):
+def _emailed(session, domain, email="jane@x.com", day=29, naive=False):
+    sent_at = _at_naive(day) if naive else _at(day)
     session.add(MessageRow(company_domain=domain, contact_email=email,
-                           status="sent", sent_at=_at(day), sent_by="john@sixthcity.com"))
+                           status="sent", sent_at=sent_at, sent_by="john@sixthcity.com"))
+    session.commit()
+
+
+def _promoted(session, domain, claimed=True, day=25):
+    """pushed=True is the promote action. When claimed=False this is a promote-
+    without-prior-claim — /api/push's own docstring allows it — so there is no
+    claimed_at to source a timestamp from."""
+    session.add(AccountRow(domain=domain, name=domain.split(".")[0].title(),
+                           pushed=True, claimed=claimed,
+                           claimed_at=_at(day) if claimed else None))
     session.commit()
 
 
@@ -108,6 +125,64 @@ def test_timestamps_serialize_as_utc_iso():
     _saved(session, "acme.example")
     _emailed(session, "acme.example", day=29)
     assert activity.build(session)["companies"][0]["events"][0]["at"].startswith("2026-07-29")
+
+
+def test_naive_sent_at_still_serializes_with_a_utc_offset():
+    """C1: sent_at is a naive DateTime column in prod (Postgres hands back naive-
+    but-actually-UTC). Without normalising, the browser reads it as viewer-local
+    and every send time drifts by the operator's UTC offset."""
+    session = _session()
+    _emailed(session, "acme.example", day=29, naive=True)
+    at = activity.build(session)["companies"][0]["events"][0]["at"]
+    assert at.endswith("+00:00"), f"expected a UTC offset, got {at!r}"
+
+
+def test_promoted_but_unclaimed_company_appears_in_default_view():
+    """/api/push can promote straight from discovery — repo.mark_pushed never
+    sets claimed. That company must not vanish from Activity."""
+    session = _session()
+    _promoted(session, "leapfrog.example", claimed=False)
+    out = activity.build(session)
+    assert [c["domain"] for c in out["companies"]] == ["leapfrog.example"]
+    events = out["companies"][0]["events"]
+    assert [e["type"] for e in events] == ["promoted"]
+    assert events[0]["at"] is None   # no claimed_at to source a timestamp from
+
+
+def test_totals_promoted_counts_the_whole_set():
+    session = _session()
+    for i in range(7):
+        _promoted(session, f"firm{i}.example", claimed=False)
+    out = activity.build(session, limit=3)
+    assert out["totals"]["promoted"] == 7
+    assert len(out["companies"]) == 3
+
+
+def test_promoted_and_emailed_company_carries_both_events():
+    session = _session()
+    _promoted(session, "acme.example", claimed=True, day=25)
+    _emailed(session, "acme.example", day=29)
+    events = activity.build(session)["companies"][0]["events"]
+    assert {"promoted", "emailed"} <= {e["type"] for e in events}
+
+
+def test_sent_row_with_no_company_domain_is_not_a_phantom_company():
+    """get_candidates guards this exact case explicitly; build() must too."""
+    session = _session()
+    session.add(MessageRow(company_domain=None, contact_email="x@y.com",
+                           status="sent", sent_at=_at(29), sent_by="john@sixthcity.com"))
+    session.commit()
+    out = activity.build(session)
+    assert out["companies"] == []
+    assert out["count"] == 0
+
+
+def test_limit_is_clamped_to_at_least_one():
+    session = _session()
+    for i in range(3):
+        _promoted(session, f"firm{i}.example", claimed=False)
+    out = activity.build(session, limit=-1)
+    assert len(out["companies"]) == 1
 
 
 def test_query_count_is_flat_regardless_of_company_count():

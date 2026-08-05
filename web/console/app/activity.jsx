@@ -2,9 +2,10 @@
    Activity — did we actually do this?
    Company-grouped, newest activity first. The engine records
    two facts (we saved them, we sent the first touch) plus the
-   operator's decisions; everything after the touch lives in
-   HubSpot and the inbox by design. The Compose action here is
-   how you reach a SECOND person at a company already touched.
+   operator's promotes and decisions; everything after the touch
+   lives in HubSpot and the inbox by design. The Compose action
+   here is how you reach a SECOND person at a company already
+   touched — never on one the operator rejected.
    ============================================================ */
 const { useState: useStateA, useEffect: useEffectA } = React;
 const PEA = window.PE;
@@ -12,7 +13,8 @@ const IcoA = PEA.Icons;
 const { Badge: BadgeA, Button: BtnA } = window.SixthCityMarketingDesignSystem_4d5a9e;
 
 const AC_CSS = `
-.ac-tiles{ display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin:20px 0; }
+.ac-tiles{ display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:20px 0; }
+@media (max-width:1100px){ .ac-tiles{ grid-template-columns:repeat(2,1fr); } }
 @media (max-width:800px){ .ac-tiles{ grid-template-columns:1fr; } }
 .ac-tile{ background:var(--surface-card); border:1px solid var(--border-subtle);
   border-radius:var(--radius-lg); box-shadow:var(--shadow-xs); padding:16px 18px; }
@@ -35,13 +37,14 @@ const AC_CSS = `
 .ac-ev__t{ font-family:var(--font-mono); font-size:10px; color:var(--text-subtle);
   margin-left:auto; white-space:nowrap; }
 .ac-hs{ font-size:12px; font-weight:700; color:var(--coral-600); text-decoration:none; }
+.ac-rejected{ font-size:12px; color:var(--text-subtle); }
 .ac-empty{ text-align:center; padding:54px 20px; color:var(--text-muted); }
 .ac-empty h3{ font-family:var(--font-display); font-weight:900; color:var(--text-strong); margin:10px 0 4px; }
 `;
 (function(){ if(document.getElementById("ac-css"))return; const s=document.createElement("style"); s.id="ac-css"; s.textContent=AC_CSS; document.head.appendChild(s); })();
 
-const EV_LABEL = { saved: "Saved to CRM", emailed: "First touch sent", decided: "Decision" };
-const EV_TONE = { saved: "neutral", emailed: "green", decided: "warning" };
+const EV_LABEL = { saved: "Saved to CRM", emailed: "First touch sent", decided: "Decision", promoted: "LFG" };
+const EV_TONE = { saved: "neutral", emailed: "green", decided: "warning", promoted: "green" };
 
 // Cleveland's clock, not the server's and not the viewer's.
 function whenET(iso) {
@@ -52,7 +55,7 @@ function whenET(iso) {
   });
 }
 
-function ActivityScreen({ onError }) {
+function ActivityScreen({ onError, onUndo, onUndoError }) {
   const [data, setData] = useStateA(null);
   const [showSaved, setShowSaved] = useStateA(false);
   const [showDecided, setShowDecided] = useStateA(false);
@@ -70,14 +73,22 @@ function ActivityScreen({ onError }) {
     return () => { live = false; };
   }, [showSaved, showDecided]);
 
-  async function returnToTriage(domain) {
+  async function returnToTriage(domain, name) {
     try {
       await PEA.undecideDomains([domain]);
       setData(await PEA.fetchActivity(include, 100));
-    } catch (e) { onError && onError(e); }
+      // The trail is derived, so a restored company also disappears from this
+      // view (it was only visible via the decisions filter) — a silent vanish
+      // reads identically to the reject-poof it just reversed. Say so.
+      onUndo && onUndo(name || domain);
+    } catch (e) {
+      // Undo is the only reversal path in the product — the shared push-failure
+      // toast ("Push failed —") would be actively misleading here.
+      onUndoError ? onUndoError(name || domain, e) : (onError && onError(e));
+    }
   }
 
-  const t = (data && data.totals) || { saved: 0, emailed: 0, decided: 0 };
+  const t = (data && data.totals) || { saved: 0, emailed: 0, decided: 0, promoted: 0 };
   const companies = (data && data.companies) || [];
 
   return (
@@ -96,6 +107,7 @@ function ActivityScreen({ onError }) {
 
       <div className="ac-tiles">
         <div className="ac-tile"><div className="ac-tile__v">{t.saved.toLocaleString("en-US")}</div><div className="ac-tile__k">companies saved</div></div>
+        <div className="ac-tile"><div className="ac-tile__v">{t.promoted.toLocaleString("en-US")}</div><div className="ac-tile__k">promoted (LFG)</div></div>
         <div className="ac-tile"><div className="ac-tile__v">{t.emailed.toLocaleString("en-US")}</div><div className="ac-tile__k">first touches sent</div></div>
         <div className="ac-tile"><div className="ac-tile__v">{t.decided.toLocaleString("en-US")}</div><div className="ac-tile__k">decisions made</div></div>
       </div>
@@ -115,7 +127,10 @@ function ActivityScreen({ onError }) {
             touch from the Morning Queue and it shows up here.</p>
         </div>
       ) : companies.map((c) => {
+        // events are sorted newest-first, so [0] among "decided" is the newest call —
+        // an earlier hold overridden by a later reject must still block Compose.
         const decided = c.events.find((e) => e.type === "decided");
+        const rejected = decided && decided.detail === "reject";
         return (
           <div className="ac-row" key={c.domain}>
             <div className="ac-row__h">
@@ -124,11 +139,13 @@ function ActivityScreen({ onError }) {
               </div>
               <div className="ac-row__sp">
                 {c.hubspot_url && <a className="ac-hs" href={c.hubspot_url} target="_blank" rel="noopener noreferrer">HubSpot →</a>}
-                {decided && <BtnA variant="ghost" size="sm" onClick={() => returnToTriage(c.domain)}>Return to triage</BtnA>}
-                <BtnA variant="secondary" size="sm"
-                  onClick={() => setOpen((o) => ({ ...o, [c.domain]: !o[c.domain] }))}>
-                  {open[c.domain] ? "Close" : "Compose"}
-                </BtnA>
+                {decided && <BtnA variant="ghost" size="sm" onClick={() => returnToTriage(c.domain, c.name)}>Return to triage</BtnA>}
+                {rejected
+                  ? <span className="ac-rejected">Rejected — no outreach from here</span>
+                  : <BtnA variant="secondary" size="sm"
+                      onClick={() => setOpen((o) => ({ ...o, [c.domain]: !o[c.domain] }))}>
+                      {open[c.domain] ? "Close" : "Compose"}
+                    </BtnA>}
               </div>
             </div>
             {c.events.map((e, i) => (
@@ -138,7 +155,7 @@ function ActivityScreen({ onError }) {
                 <span className="ac-ev__t">{whenET(e.at)}</span>
               </div>
             ))}
-            {open[c.domain] && <PEA.ComposePanel account={{ domain: c.domain, name: c.name }} onError={onError} />}
+            {!rejected && open[c.domain] && <PEA.ComposePanel account={{ domain: c.domain, name: c.name }} onError={onError} />}
           </div>
         );
       })}

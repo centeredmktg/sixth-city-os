@@ -145,6 +145,9 @@ function App() {
   };
   const pushError = (err) => setToast({ err: true, msg: <span>Push failed — {String(err.message || err)}</span> });
 
+  const undoConfirmed = (company) => setToast({ msg: <span><b>{company}</b> is back in triage</span> });
+  const undoError = (company, err) => setToast({ err: true, msg: <span>Couldn't return {company} to triage — {String(err.message || err)}</span> });
+
   const nav = (v) => {
     setView(v); setMode("run");
     const path = VIEW_PATH[v] || "/";
@@ -177,7 +180,7 @@ function App() {
             : view === "triage"
               ? <P.TriageBoard onConfirmed={triageConfirmed} onError={pushError} />
             : view === "activity"
-              ? <P.ActivityScreen onError={pushError} />
+              ? <P.ActivityScreen onError={pushError} onUndo={undoConfirmed} onUndoError={undoError} />
             : view === "accounts"
               ? <P.AccountsScreen />
             : view === "scoreboard"
