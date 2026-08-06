@@ -87,7 +87,12 @@ function MorningQueue({ onConfirmed, onError }) {
       PEQ.refresh();
     };
     if (reduce) { finish(); return; }
-    timersQ.current.push(setTimeout(finish, 400));
+    // Drop the id once it fires — otherwise the array just grows for the component's life.
+    const id = setTimeout(() => {
+      timersQ.current = timersQ.current.filter((t) => t !== id);
+      finish();
+    }, 400);
+    timersQ.current.push(id);
   }
 
   // Today's worklist: net-new with a CONFIRMED in-market signal (actively running

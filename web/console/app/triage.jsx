@@ -43,10 +43,12 @@ const TG_CSS = `
   box-shadow:var(--shadow-sm); padding:16px 18px; margin-bottom:12px; display:grid;
   grid-template-columns:1.5fr 1.3fr auto; gap:18px; align-items:center; }
 .tg-card--done{ background:var(--surface-cream); border-color:var(--green-200); }
-.tg-card--leaving{ opacity:0; transform:translateY(-6px); max-height:0; margin-bottom:0;
-  padding-top:0; padding-bottom:0; overflow:hidden;
-  transition:opacity .28s ease, transform .28s ease, max-height .4s ease,
-             margin .4s ease, padding .4s ease; }
+/* Fade + translate only — no max-height/margin/padding collapse. .tg-card has no
+   fixed height (unlike .mq-card's 400px) because a send fires from its own expanded
+   compose panel, so the card's real height varies too much for any fixed cap to both
+   avoid clipping and animate the collapse; the fade plus the unmount is the honest exit. */
+.tg-card--leaving{ opacity:0; transform:translateY(-6px);
+  transition:opacity .28s ease, transform .28s ease; }
 @media (prefers-reduced-motion: reduce){
   .tg-card--leaving{ transition:none; }
 }
@@ -152,7 +154,12 @@ function TriageBoard({ onConfirmed, onError }) {
       PET.refresh();
     };
     if (reduce) { finish(); return; }
-    timersT.current.push(setTimeout(finish, 400));
+    // Drop the id once it fires — otherwise the array just grows for the component's life.
+    const id = setTimeout(() => {
+      timersT.current = timersT.current.filter((t) => t !== id);
+      finish();
+    }, 400);
+    timersT.current.push(id);
   }
 
   // Hold/Nurture/Reject persist to the server and clear the card. LFG is NOT here —
