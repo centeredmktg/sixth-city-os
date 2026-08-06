@@ -180,6 +180,15 @@ async function fetchAdded() {
   return r.json();   // { added: [...], total }
 }
 
+/* The activity feed — what we actually did, grouped by company. */
+async function fetchActivity(include, limit) {
+  const qs = [];
+  if (include && include.length) qs.push("include=" + encodeURIComponent(include.join(",")));
+  if (limit) qs.push("limit=" + limit);
+  const r = await fetch("/api/activity" + (qs.length ? "?" + qs.join("&") : ""));
+  return r.json();   // { companies:[...], totals:{saved,emailed,decided}, count }
+}
+
 /* Commit to an opportunity -> find & enrich the decision-makers (Apollo). */
 async function pursueDomains(domains) {
   const r = await fetch("/api/pursue", {
@@ -276,7 +285,7 @@ Object.assign(window.PE, {
   Vertical, SignalKind, RUN, STAGES, STATUS, ROLE,
   ACTIVE_SOURCES, ONDECK_SOURCES, STREAM,
   siteHeat, srcLabel, srcIcon, refresh, ingestFile, enrichChunk, pushDomains, decideDomains, undecideDomains,
-  fetchScoreboard, fetchAdded,
+  fetchScoreboard, fetchAdded, fetchActivity,
   pursueDomains, fetchContacts, composeMessage, editMessage, sendMessage, LAST_INGEST: null,
   ops: { name: "John Sammon", title: "Owner / Sixth City" },
   danny: { name: "Danny Cox", title: "Pipeline Ops" },

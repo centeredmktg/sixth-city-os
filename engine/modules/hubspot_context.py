@@ -6,7 +6,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import date
+
+from engine.clock import local_today
 
 PROP_SCORE = "engine_score"
 PROP_BAND = "engine_band"
@@ -30,7 +31,7 @@ def context_properties(account) -> dict:
         PROP_BAND: band,
         PROP_ROUTE: route,
         PROP_WHY: why,
-        PROP_SYNCED: date.today().isoformat(),
+        PROP_SYNCED: local_today(),
     }
 
 

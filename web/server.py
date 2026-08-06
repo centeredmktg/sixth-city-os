@@ -35,6 +35,7 @@ from engine.jobs import enrich as enrich_job
 from engine.jobs import enrich_places
 from engine.jobs import sync_hubspot_context
 from engine.jobs.rescore import rescore_all
+from engine.modules import activity
 from engine.modules import draft_cold_email
 from engine.modules import hubspot_links
 from engine.modules import hubspot_context
@@ -311,6 +312,15 @@ def added(session=Depends(db_session), limit: int = 200):
             "engine_status": "working" if r.pushed else "discovered",
         })
     return {"added": out, "total": total}
+
+
+@app.get("/api/activity")
+def activity_feed(session=Depends(db_session), include: str | None = None, limit: int = 100):
+    """What the team actually did, grouped by company. Defaults to companies we've
+    touched; `include=saved,decided` widens it. Totals always describe the whole set,
+    never just the returned page."""
+    wanted = {p.strip() for p in include.split(",")} if include else None
+    return activity.build(session, include=wanted, limit=limit)
 
 
 @app.post("/api/enrich")
@@ -725,7 +735,7 @@ def put_owner_config(cfg: OwnerConfig, session=Depends(db_session)):
 # any of these must serve index.html and let the app render the right view from the
 # path. Registered BEFORE the "/" StaticFiles mount so they win over its catch-all.
 _CONSOLE_INDEX = os.path.join(WEB_DIR, "console", "index.html")
-for _spa_path in ("/ingestion", "/queue", "/triage", "/scoreboard", "/accounts", "/scoring"):
+for _spa_path in ("/ingestion", "/queue", "/triage", "/activity", "/scoreboard", "/accounts", "/scoring"):
     app.add_api_route(_spa_path, lambda: FileResponse(_CONSOLE_INDEX),
                       methods=["GET"], include_in_schema=False)
 
