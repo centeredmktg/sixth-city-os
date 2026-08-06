@@ -139,9 +139,11 @@ function App() {
 
   const importError = (err) => setToast({ err: true, msg: <span>Ingest failed — {String(err.message || err)}</span> });
 
-  const triageConfirmed = (n) => {
+  // msg lets a caller (e.g. the Morning Queue's send-confirmed poof) supply its own
+  // toast text instead of the generic "N confirmed" copy.
+  const triageConfirmed = (n, msg) => {
     P.refresh().then(() => setTick((t) => t + 1));
-    setToast({ msg: <span><b>{n}</b> confirmed → pushed to HubSpot</span> });
+    setToast({ msg: msg ? <span>{msg}</span> : <span><b>{n}</b> confirmed → pushed to HubSpot</span> });
   };
   const pushError = (err) => setToast({ err: true, msg: <span>Push failed — {String(err.message || err)}</span> });
 

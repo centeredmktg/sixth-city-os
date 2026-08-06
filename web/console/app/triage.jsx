@@ -5,7 +5,7 @@
    Confirming a Closer pushes it into HubSpot (server re-checks
    net-new at claim time). LIVE: reads PE.STREAM, posts /api/push.
    ============================================================ */
-const { useState: useStateT, useMemo: useMemoT } = React;
+const { useState: useStateT, useMemo: useMemoT, useRef: useRefT, useEffect: useEffectT } = React;
 const PET = window.PE;
 const IcoT = PET.Icons;
 const { Badge: BadgeT, Button: BtnT } = window.SixthCityMarketingDesignSystem_4d5a9e;
@@ -43,6 +43,15 @@ const TG_CSS = `
   box-shadow:var(--shadow-sm); padding:16px 18px; margin-bottom:12px; display:grid;
   grid-template-columns:1.5fr 1.3fr auto; gap:18px; align-items:center; }
 .tg-card--done{ background:var(--surface-cream); border-color:var(--green-200); }
+/* Fade + translate only — no max-height/margin/padding collapse. .tg-card has no
+   fixed height (unlike .mq-card's 400px) because a send fires from its own expanded
+   compose panel, so the card's real height varies too much for any fixed cap to both
+   avoid clipping and animate the collapse; the fade plus the unmount is the honest exit. */
+.tg-card--leaving{ opacity:0; transform:translateY(-6px); pointer-events:none;
+  transition:opacity .28s ease, transform .28s ease; }
+@media (prefers-reduced-motion: reduce){
+  .tg-card--leaving{ transition:none; }
+}
 .tg-card__nm{ font-weight:800; font-size:var(--text-md); color:var(--text-strong); }
 .tg-card__meta{ font-size:11px; color:var(--text-muted); margin-top:2px; }
 .tg-card__why{ font-size:12px; margin-top:6px; display:flex; align-items:center; gap:6px; }
@@ -121,9 +130,47 @@ function TriageBoard({ onConfirmed, onError }) {
   const [finding, setFinding] = useStateT({});        // domain -> true while contact discovery runs
   const [found, setFound] = useStateT({});            // domain -> {contacts, general_phone, phone_source}
   const [composing, setComposing] = useStateT({});    // domain -> compose panel expanded
+  const [leaving, setLeaving] = useStateT({});         // domain -> true (animating out)
+  const [sentGone, setSentGone] = useStateT({});       // domain -> true (unmounted, first touch sent)
+
+  // Pending removal timers, so we can cancel them if the operator navigates away
+  // mid-animation instead of writing state into a detached component. Each entry
+  // also carries its notify() so an unmount can still deliver it (see below) —
+  // clearTimeout alone would silently drop the refresh + toast, not just the
+  // local state write.
+  const timersT = useRefT([]);
+  useEffectT(() => () => {
+    // The child is on its way out, but onConfirmed is a prop owned by the still-
+    // mounted App — safe to call after this component unmounts, and it's the only
+    // thing that refreshes PE.STREAM and shows the toast. Only setSentGone (local
+    // state) is skipped; there's nothing left to update it on.
+    timersT.current.forEach((t) => { clearTimeout(t.id); t.notify(); });
+  }, []);
 
   const routeOf = (a) => overrides[a.domain] || a.route || "nurture";
   const setRoute = (domain, key) => setOverrides((o) => ({ ...o, [domain]: key }));
+
+  // Same clearing as the Morning Queue: fires ONLY after the server confirmed
+  // {sent:true}, never on the click. Optimistic on that confirmation, not on the
+  // next /api/candidates round-trip.
+  function onSent(domain, contactEmail, companyName) {
+    setLeaving((l) => ({ ...l, [domain]: true }));
+    const reduce = window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // notify() is the shared-state side effect (refresh + toast via onConfirmed,
+    // which already calls P.refresh() in app.jsx) — it must run whether or not this
+    // component survives. settle() is purely local and only makes sense if it does.
+    const notify = () => onConfirmed && onConfirmed(0, `Emailed ${contactEmail} at ${companyName} — cleared from your board`);
+    const settle = () => setSentGone((g) => ({ ...g, [domain]: true }));
+    if (reduce) { settle(); notify(); return; }
+    // Drop the entry once it fires — otherwise the array just grows for the component's life.
+    const id = setTimeout(() => {
+      timersT.current = timersT.current.filter((t) => t.id !== id);
+      settle();
+      notify();
+    }, 400);
+    timersT.current.push({ id, notify });
+  }
 
   // Hold/Nurture/Reject persist to the server and clear the card. LFG is NOT here —
   // it's a promote, and it goes through confirm()/api/push.
@@ -153,7 +200,8 @@ function TriageBoard({ onConfirmed, onError }) {
     } finally { setBusy((b) => { const n = { ...b }; delete n[domain]; return n; }); }
   }
 
-  const awaiting = all.filter((a) => !confirmed[a.domain] && !decided[a.domain]);
+  const awaiting = all.filter((a) => !confirmed[a.domain] && !decided[a.domain]
+                                     && !sentGone[a.domain]);
   const counts = ROUTES.reduce((m, r) => (m[r.key] = all.filter((a) => routeOf(a) === r.key).length, m), {});
   const obvious = awaiting.filter((a) => routeOf(a) === "closer" && a.band === "A").map((a) => a.domain);
   const bulkBusy = obvious.some((d) => busy[d]);   // bulk button reflects only its own in-flight set
@@ -237,7 +285,8 @@ function TriageBoard({ onConfirmed, onError }) {
                 const r = routeOf(a);
                 const done = confirmed[a.domain];
                 return (
-                  <div className={"tg-card" + (done ? " tg-card--done" : "")} key={a.domain}>
+                  <div className={"tg-card" + (done ? " tg-card--done" : "")
+                                 + (leaving[a.domain] ? " tg-card--leaving" : "")} key={a.domain}>
                     <div>
                       <div className="tg-card__nm">
                         <PET.CompanyLink name={a.name} domain={a.domain} />
@@ -345,7 +394,8 @@ function TriageBoard({ onConfirmed, onError }) {
                           return <span className="tg-none">Couldn’t look up contacts — try again.</span>;
                         return <span className="tg-none">No contact found.</span>;
                       })()}
-                      {composing[a.domain] && <PET.ComposePanel account={a} onError={onError} />}
+                      {composing[a.domain] && <PET.ComposePanel account={a} onError={onError}
+                        onSent={(email) => onSent(a.domain, email, a.name)} />}
                     </div>
                   </div>
                 );

@@ -5,7 +5,7 @@
    one-click confirm -> push. (Triage = full board; Accounts =
    whole book; this = today's top to act on.) LIVE: PE.STREAM.
    ============================================================ */
-const { useState: useStateQ } = React;
+const { useState: useStateQ, useRef: useRefQ, useEffect: useEffectQ } = React;
 const PEQ = window.PE;
 const IcoQ = PEQ.Icons;
 const { Badge: BadgeQ, Button: BtnQ } = window.SixthCityMarketingDesignSystem_4d5a9e;
@@ -27,8 +27,26 @@ const MQ_CSS = `
 .mq-bar__sp{ margin-left:auto; }
 .mq-card{ display:grid; grid-template-columns:auto 1fr auto; gap:16px; align-items:center;
   background:var(--surface-card); border:1px solid var(--border-subtle); border-radius:var(--radius-lg);
-  box-shadow:var(--shadow-sm); padding:15px 18px; margin-bottom:11px; transition:opacity var(--tap-transition); }
+  box-shadow:var(--shadow-sm); padding:15px 18px; margin-bottom:11px; transition:opacity var(--tap-transition);
+  max-height:400px; }
 .mq-card--done{ opacity:.55; background:var(--surface-cream); }
+/* The compose panel renders as a sibling AFTER .mq-card, not inside it (so Compose can
+   toggle without remounting the card). On send both must collapse as one unit or the
+   panel detaches and slides on its own — the leaving flag lives on their shared wrapper
+   (.mq-row) and drives both children via the descendant rules below. */
+.mq-row--leaving{ pointer-events:none; opacity:0; transform:translateY(-6px);
+  transition:opacity .28s ease, transform .28s ease; }
+.mq-row--leaving .mq-card, .mq-row--leaving .mq-cp{ max-height:0; overflow:hidden;
+  margin-top:0; margin-bottom:0; padding-top:0; padding-bottom:0;
+  transition:max-height .4s ease, margin .4s ease, padding .4s ease; }
+/* .mq-cp (compose.jsx) has no numeric max-height at rest — "none" can't be
+   transitioned, so give it one here, scoped to Queue rows only, high enough that
+   a real (open, multi-contact) panel never gets clipped by it. */
+.mq-row .mq-cp{ max-height:2000px; }
+@media (prefers-reduced-motion: reduce){
+  .mq-row--leaving{ transition:none; }
+  .mq-row--leaving .mq-card, .mq-row--leaving .mq-cp{ transition:none; }
+}
 .mq-rank{ width:30px; height:30px; border-radius:50%; background:var(--ink-700); color:#fff; display:grid; place-items:center;
   font-family:var(--font-condensed); font-weight:800; font-size:14px; flex:none; }
 .mq-nm{ font-weight:800; font-size:var(--text-md); color:var(--text-strong); }
@@ -58,12 +76,51 @@ function MorningQueue({ onConfirmed, onError }) {
   const [busy, setBusy] = useStateQ({});   // domain -> true while ITS push is in flight (per-row, not page-wide)
   const [open, setOpen] = useStateQ({});   // domain -> compose/send panel expanded
   const [gone, setGone] = useStateQ({});   // domain -> true (rejected off the list)
+  const [leaving, setLeaving] = useStateQ({});   // domain -> true (animating out)
+  const [sentGone, setSentGone] = useStateQ({}); // domain -> true (unmounted)
+
+  // Pending removal timers, so we can cancel them if the operator navigates away
+  // mid-animation instead of writing state into a detached component. Each entry
+  // also carries its notify() so an unmount can still deliver it (see below) —
+  // clearTimeout alone would silently drop the refresh + toast, not just the
+  // local state write.
+  const timersQ = useRefQ([]);
+  useEffectQ(() => () => {
+    // The child is on its way out, but onConfirmed is a prop owned by the still-
+    // mounted App — safe to call after this component unmounts, and it's the only
+    // thing that refreshes PE.STREAM and shows the toast. Only setSentGone (local
+    // state) is skipped; there's nothing left to update it on.
+    timersQ.current.forEach((t) => { clearTimeout(t.id); t.notify(); });
+  }, []);
+
+  // Fires ONLY after the server confirmed {sent:true} — never on the click. Removal is
+  // optimistic on that confirmation rather than on a /api/candidates round-trip, which
+  // would lag the poof by a second and read as broken; the next refresh() confirms it.
+  function onSent(domain, contactEmail, companyName) {
+    setLeaving((l) => ({ ...l, [domain]: true }));
+    const reduce = window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    // notify() is the shared-state side effect (refresh + toast via onConfirmed,
+    // which already calls P.refresh() in app.jsx) — it must run whether or not this
+    // component survives. settle() is purely local and only makes sense if it does.
+    const notify = () => onConfirmed && onConfirmed(0, `Emailed ${contactEmail} at ${companyName} — cleared from your queue`);
+    const settle = () => setSentGone((g) => ({ ...g, [domain]: true }));
+    if (reduce) { settle(); notify(); return; }
+    // Drop the entry once it fires — otherwise the array just grows for the component's life.
+    const id = setTimeout(() => {
+      timersQ.current = timersQ.current.filter((t) => t.id !== id);
+      settle();
+      notify();
+    }, 400);
+    timersQ.current.push({ id, notify });
+  }
 
   // Today's worklist: net-new with a CONFIRMED in-market signal (actively running
   // ads / hiring / just launched) — the firms a real buying signal says to work NOW.
   // Best-first. Unknown-timing firms aren't buried here; they're for qualification.
   const queue = (PEQ.STREAM || [])
-    .filter((a) => a.netNew === true && a.inMarket === "confirmed" && !gone[a.domain])
+    .filter((a) => a.netNew === true && a.inMarket === "confirmed"
+                   && !gone[a.domain] && !sentGone[a.domain])
     .sort((x, y) => (y.total || 0) - (x.total || 0))
     .slice(0, TOP_N);
   const left = queue.filter((a) => !done[a.domain]);
@@ -140,7 +197,7 @@ function MorningQueue({ onConfirmed, onError }) {
             const WhyI = why ? (IcoQ[SIG_ICON_Q[why.kind]] || IcoQ.Zap) : IcoQ.Zap;
             const isDone = done[a.domain];
             return (
-              <React.Fragment key={a.domain}>
+              <div key={a.domain} className={"mq-row" + (leaving[a.domain] ? " mq-row--leaving" : "")}>
               <div className={"mq-card" + (isDone ? " mq-card--done" : "")}>
                 <div className="mq-rank">{i + 1}</div>
                 <div style={{ minWidth: 0 }}>
@@ -162,8 +219,9 @@ function MorningQueue({ onConfirmed, onError }) {
                     onClick={() => reject(a.domain)}>Reject</BtnQ>
                 </div>
               </div>
-              {open[a.domain] && <PEQ.ComposePanel account={a} onError={onError} />}
-              </React.Fragment>
+              {open[a.domain] && <PEQ.ComposePanel account={a} onError={onError}
+                onSent={(email) => onSent(a.domain, email, a.name)} />}
+              </div>
             );
           })}
         </React.Fragment>
