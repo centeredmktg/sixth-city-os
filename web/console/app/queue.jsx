@@ -27,8 +27,16 @@ const MQ_CSS = `
 .mq-bar__sp{ margin-left:auto; }
 .mq-card{ display:grid; grid-template-columns:auto 1fr auto; gap:16px; align-items:center;
   background:var(--surface-card); border:1px solid var(--border-subtle); border-radius:var(--radius-lg);
-  box-shadow:var(--shadow-sm); padding:15px 18px; margin-bottom:11px; transition:opacity var(--tap-transition); }
+  box-shadow:var(--shadow-sm); padding:15px 18px; margin-bottom:11px; transition:opacity var(--tap-transition);
+  max-height:400px; }
 .mq-card--done{ opacity:.55; background:var(--surface-cream); }
+.mq-card--leaving{ opacity:0; transform:translateY(-6px); max-height:0; margin-bottom:0;
+  padding-top:0; padding-bottom:0; overflow:hidden;
+  transition:opacity .28s ease, transform .28s ease, max-height .4s ease,
+             margin .4s ease, padding .4s ease; }
+@media (prefers-reduced-motion: reduce){
+  .mq-card--leaving{ transition:none; }
+}
 .mq-rank{ width:30px; height:30px; border-radius:50%; background:var(--ink-700); color:#fff; display:grid; place-items:center;
   font-family:var(--font-condensed); font-weight:800; font-size:14px; flex:none; }
 .mq-nm{ font-weight:800; font-size:var(--text-md); color:var(--text-strong); }
@@ -58,12 +66,30 @@ function MorningQueue({ onConfirmed, onError }) {
   const [busy, setBusy] = useStateQ({});   // domain -> true while ITS push is in flight (per-row, not page-wide)
   const [open, setOpen] = useStateQ({});   // domain -> compose/send panel expanded
   const [gone, setGone] = useStateQ({});   // domain -> true (rejected off the list)
+  const [leaving, setLeaving] = useStateQ({});   // domain -> true (animating out)
+  const [sentGone, setSentGone] = useStateQ({}); // domain -> true (unmounted)
+
+  // Fires ONLY after the server confirmed {sent:true} — never on the click. Removal is
+  // optimistic on that confirmation rather than on a /api/candidates round-trip, which
+  // would lag the poof by a second and read as broken; the next refresh() confirms it.
+  function onSent(domain, contactEmail, companyName) {
+    setLeaving((l) => ({ ...l, [domain]: true }));
+    const reduce = window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const finish = () => {
+      setSentGone((g) => ({ ...g, [domain]: true }));
+      onConfirmed && onConfirmed(0, `Emailed ${contactEmail} at ${companyName} — cleared from your queue`);
+      PEQ.refresh();
+    };
+    reduce ? finish() : setTimeout(finish, 400);
+  }
 
   // Today's worklist: net-new with a CONFIRMED in-market signal (actively running
   // ads / hiring / just launched) — the firms a real buying signal says to work NOW.
   // Best-first. Unknown-timing firms aren't buried here; they're for qualification.
   const queue = (PEQ.STREAM || [])
-    .filter((a) => a.netNew === true && a.inMarket === "confirmed" && !gone[a.domain])
+    .filter((a) => a.netNew === true && a.inMarket === "confirmed"
+                   && !gone[a.domain] && !sentGone[a.domain])
     .sort((x, y) => (y.total || 0) - (x.total || 0))
     .slice(0, TOP_N);
   const left = queue.filter((a) => !done[a.domain]);
@@ -141,7 +167,8 @@ function MorningQueue({ onConfirmed, onError }) {
             const isDone = done[a.domain];
             return (
               <React.Fragment key={a.domain}>
-              <div className={"mq-card" + (isDone ? " mq-card--done" : "")}>
+              <div className={"mq-card" + (isDone ? " mq-card--done" : "")
+                             + (leaving[a.domain] ? " mq-card--leaving" : "")}>
                 <div className="mq-rank">{i + 1}</div>
                 <div style={{ minWidth: 0 }}>
                   <div className="mq-nm"><PEQ.CompanyLink name={a.name} domain={a.domain} /></div>
@@ -162,7 +189,8 @@ function MorningQueue({ onConfirmed, onError }) {
                     onClick={() => reject(a.domain)}>Reject</BtnQ>
                 </div>
               </div>
-              {open[a.domain] && <PEQ.ComposePanel account={a} onError={onError} />}
+              {open[a.domain] && <PEQ.ComposePanel account={a} onError={onError}
+                onSent={(email) => onSent(a.domain, email, a.name)} />}
               </React.Fragment>
             );
           })}
