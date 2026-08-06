@@ -5,7 +5,7 @@
    one-click confirm -> push. (Triage = full board; Accounts =
    whole book; this = today's top to act on.) LIVE: PE.STREAM.
    ============================================================ */
-const { useState: useStateQ } = React;
+const { useState: useStateQ, useRef: useRefQ, useEffect: useEffectQ } = React;
 const PEQ = window.PE;
 const IcoQ = PEQ.Icons;
 const { Badge: BadgeQ, Button: BtnQ } = window.SixthCityMarketingDesignSystem_4d5a9e;
@@ -69,6 +69,11 @@ function MorningQueue({ onConfirmed, onError }) {
   const [leaving, setLeaving] = useStateQ({});   // domain -> true (animating out)
   const [sentGone, setSentGone] = useStateQ({}); // domain -> true (unmounted)
 
+  // Pending removal timers, so we can cancel them if the operator navigates away
+  // mid-animation instead of writing state into a detached component.
+  const timersQ = useRefQ([]);
+  useEffectQ(() => () => timersQ.current.forEach(clearTimeout), []);
+
   // Fires ONLY after the server confirmed {sent:true} — never on the click. Removal is
   // optimistic on that confirmation rather than on a /api/candidates round-trip, which
   // would lag the poof by a second and read as broken; the next refresh() confirms it.
@@ -81,7 +86,8 @@ function MorningQueue({ onConfirmed, onError }) {
       onConfirmed && onConfirmed(0, `Emailed ${contactEmail} at ${companyName} — cleared from your queue`);
       PEQ.refresh();
     };
-    reduce ? finish() : setTimeout(finish, 400);
+    if (reduce) { finish(); return; }
+    timersQ.current.push(setTimeout(finish, 400));
   }
 
   // Today's worklist: net-new with a CONFIRMED in-market signal (actively running

@@ -5,7 +5,7 @@
    Confirming a Closer pushes it into HubSpot (server re-checks
    net-new at claim time). LIVE: reads PE.STREAM, posts /api/push.
    ============================================================ */
-const { useState: useStateT, useMemo: useMemoT } = React;
+const { useState: useStateT, useMemo: useMemoT, useRef: useRefT, useEffect: useEffectT } = React;
 const PET = window.PE;
 const IcoT = PET.Icons;
 const { Badge: BadgeT, Button: BtnT } = window.SixthCityMarketingDesignSystem_4d5a9e;
@@ -43,6 +43,13 @@ const TG_CSS = `
   box-shadow:var(--shadow-sm); padding:16px 18px; margin-bottom:12px; display:grid;
   grid-template-columns:1.5fr 1.3fr auto; gap:18px; align-items:center; }
 .tg-card--done{ background:var(--surface-cream); border-color:var(--green-200); }
+.tg-card--leaving{ opacity:0; transform:translateY(-6px); max-height:0; margin-bottom:0;
+  padding-top:0; padding-bottom:0; overflow:hidden;
+  transition:opacity .28s ease, transform .28s ease, max-height .4s ease,
+             margin .4s ease, padding .4s ease; }
+@media (prefers-reduced-motion: reduce){
+  .tg-card--leaving{ transition:none; }
+}
 .tg-card__nm{ font-weight:800; font-size:var(--text-md); color:var(--text-strong); }
 .tg-card__meta{ font-size:11px; color:var(--text-muted); margin-top:2px; }
 .tg-card__why{ font-size:12px; margin-top:6px; display:flex; align-items:center; gap:6px; }
@@ -121,9 +128,32 @@ function TriageBoard({ onConfirmed, onError }) {
   const [finding, setFinding] = useStateT({});        // domain -> true while contact discovery runs
   const [found, setFound] = useStateT({});            // domain -> {contacts, general_phone, phone_source}
   const [composing, setComposing] = useStateT({});    // domain -> compose panel expanded
+  const [leaving, setLeaving] = useStateT({});         // domain -> true (animating out)
+  const [sentGone, setSentGone] = useStateT({});       // domain -> true (unmounted, first touch sent)
+
+  // Pending removal timers, so we can cancel them if the operator navigates away
+  // mid-animation instead of writing state into a detached component.
+  const timersT = useRefT([]);
+  useEffectT(() => () => timersT.current.forEach(clearTimeout), []);
 
   const routeOf = (a) => overrides[a.domain] || a.route || "nurture";
   const setRoute = (domain, key) => setOverrides((o) => ({ ...o, [domain]: key }));
+
+  // Same clearing as the Morning Queue: fires ONLY after the server confirmed
+  // {sent:true}, never on the click. Optimistic on that confirmation, not on the
+  // next /api/candidates round-trip.
+  function onSent(domain, contactEmail, companyName) {
+    setLeaving((l) => ({ ...l, [domain]: true }));
+    const reduce = window.matchMedia
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const finish = () => {
+      setSentGone((g) => ({ ...g, [domain]: true }));
+      onConfirmed && onConfirmed(0, `Emailed ${contactEmail} at ${companyName} — cleared from your board`);
+      PET.refresh();
+    };
+    if (reduce) { finish(); return; }
+    timersT.current.push(setTimeout(finish, 400));
+  }
 
   // Hold/Nurture/Reject persist to the server and clear the card. LFG is NOT here —
   // it's a promote, and it goes through confirm()/api/push.
@@ -153,7 +183,8 @@ function TriageBoard({ onConfirmed, onError }) {
     } finally { setBusy((b) => { const n = { ...b }; delete n[domain]; return n; }); }
   }
 
-  const awaiting = all.filter((a) => !confirmed[a.domain] && !decided[a.domain]);
+  const awaiting = all.filter((a) => !confirmed[a.domain] && !decided[a.domain]
+                                     && !sentGone[a.domain]);
   const counts = ROUTES.reduce((m, r) => (m[r.key] = all.filter((a) => routeOf(a) === r.key).length, m), {});
   const obvious = awaiting.filter((a) => routeOf(a) === "closer" && a.band === "A").map((a) => a.domain);
   const bulkBusy = obvious.some((d) => busy[d]);   // bulk button reflects only its own in-flight set
@@ -237,7 +268,8 @@ function TriageBoard({ onConfirmed, onError }) {
                 const r = routeOf(a);
                 const done = confirmed[a.domain];
                 return (
-                  <div className={"tg-card" + (done ? " tg-card--done" : "")} key={a.domain}>
+                  <div className={"tg-card" + (done ? " tg-card--done" : "")
+                                 + (leaving[a.domain] ? " tg-card--leaving" : "")} key={a.domain}>
                     <div>
                       <div className="tg-card__nm">
                         <PET.CompanyLink name={a.name} domain={a.domain} />
@@ -345,7 +377,8 @@ function TriageBoard({ onConfirmed, onError }) {
                           return <span className="tg-none">Couldn’t look up contacts — try again.</span>;
                         return <span className="tg-none">No contact found.</span>;
                       })()}
-                      {composing[a.domain] && <PET.ComposePanel account={a} onError={onError} />}
+                      {composing[a.domain] && <PET.ComposePanel account={a} onError={onError}
+                        onSent={(email) => onSent(a.domain, email, a.name)} />}
                     </div>
                   </div>
                 );
