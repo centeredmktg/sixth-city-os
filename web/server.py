@@ -735,7 +735,7 @@ def put_owner_config(cfg: OwnerConfig, session=Depends(db_session)):
 # any of these must serve index.html and let the app render the right view from the
 # path. Registered BEFORE the "/" StaticFiles mount so they win over its catch-all.
 _CONSOLE_INDEX = os.path.join(WEB_DIR, "console", "index.html")
-for _spa_path in ("/ingestion", "/queue", "/triage", "/scoreboard", "/accounts", "/scoring"):
+for _spa_path in ("/ingestion", "/queue", "/triage", "/activity", "/scoreboard", "/accounts", "/scoring"):
     app.add_api_route(_spa_path, lambda: FileResponse(_CONSOLE_INDEX),
                       methods=["GET"], include_in_schema=False)
 
