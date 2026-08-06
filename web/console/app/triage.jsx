@@ -47,7 +47,7 @@ const TG_CSS = `
    fixed height (unlike .mq-card's 400px) because a send fires from its own expanded
    compose panel, so the card's real height varies too much for any fixed cap to both
    avoid clipping and animate the collapse; the fade plus the unmount is the honest exit. */
-.tg-card--leaving{ opacity:0; transform:translateY(-6px);
+.tg-card--leaving{ opacity:0; transform:translateY(-6px); pointer-events:none;
   transition:opacity .28s ease, transform .28s ease; }
 @media (prefers-reduced-motion: reduce){
   .tg-card--leaving{ transition:none; }
@@ -134,9 +134,18 @@ function TriageBoard({ onConfirmed, onError }) {
   const [sentGone, setSentGone] = useStateT({});       // domain -> true (unmounted, first touch sent)
 
   // Pending removal timers, so we can cancel them if the operator navigates away
-  // mid-animation instead of writing state into a detached component.
+  // mid-animation instead of writing state into a detached component. Each entry
+  // also carries its notify() so an unmount can still deliver it (see below) —
+  // clearTimeout alone would silently drop the refresh + toast, not just the
+  // local state write.
   const timersT = useRefT([]);
-  useEffectT(() => () => timersT.current.forEach(clearTimeout), []);
+  useEffectT(() => () => {
+    // The child is on its way out, but onConfirmed is a prop owned by the still-
+    // mounted App — safe to call after this component unmounts, and it's the only
+    // thing that refreshes PE.STREAM and shows the toast. Only setSentGone (local
+    // state) is skipped; there's nothing left to update it on.
+    timersT.current.forEach((t) => { clearTimeout(t.id); t.notify(); });
+  }, []);
 
   const routeOf = (a) => overrides[a.domain] || a.route || "nurture";
   const setRoute = (domain, key) => setOverrides((o) => ({ ...o, [domain]: key }));
@@ -148,18 +157,19 @@ function TriageBoard({ onConfirmed, onError }) {
     setLeaving((l) => ({ ...l, [domain]: true }));
     const reduce = window.matchMedia
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const finish = () => {
-      setSentGone((g) => ({ ...g, [domain]: true }));
-      onConfirmed && onConfirmed(0, `Emailed ${contactEmail} at ${companyName} — cleared from your board`);
-      PET.refresh();
-    };
-    if (reduce) { finish(); return; }
-    // Drop the id once it fires — otherwise the array just grows for the component's life.
+    // notify() is the shared-state side effect (refresh + toast via onConfirmed,
+    // which already calls P.refresh() in app.jsx) — it must run whether or not this
+    // component survives. settle() is purely local and only makes sense if it does.
+    const notify = () => onConfirmed && onConfirmed(0, `Emailed ${contactEmail} at ${companyName} — cleared from your board`);
+    const settle = () => setSentGone((g) => ({ ...g, [domain]: true }));
+    if (reduce) { settle(); notify(); return; }
+    // Drop the entry once it fires — otherwise the array just grows for the component's life.
     const id = setTimeout(() => {
-      timersT.current = timersT.current.filter((t) => t !== id);
-      finish();
+      timersT.current = timersT.current.filter((t) => t.id !== id);
+      settle();
+      notify();
     }, 400);
-    timersT.current.push(id);
+    timersT.current.push({ id, notify });
   }
 
   // Hold/Nurture/Reject persist to the server and clear the card. LFG is NOT here —

@@ -91,6 +91,12 @@ function ActivityScreen({ onError, onUndo, onUndoError }) {
   const t = (data && data.totals) || { saved: 0, emailed: 0, decided: 0, promoted: 0 };
   const companies = (data && data.companies) || [];
 
+  // A send here can be the first touch for an "Include saves" row that hasn't been
+  // worked yet — with no refresh, Queue/Triage keep listing it as unworked for the
+  // rest of the session (nav doesn't re-pull). No removal animation: this screen is
+  // a record, not a worklist, so the row just stays put.
+  function onSent() { PEA.refresh(); }
+
   return (
     <div className="pe-page">
       <div className="q-head">
@@ -155,7 +161,7 @@ function ActivityScreen({ onError, onUndo, onUndoError }) {
                 <span className="ac-ev__t">{whenET(e.at)}</span>
               </div>
             ))}
-            {!rejected && open[c.domain] && <PEA.ComposePanel account={{ domain: c.domain, name: c.name }} onError={onError} />}
+            {!rejected && open[c.domain] && <PEA.ComposePanel account={{ domain: c.domain, name: c.name }} onError={onError} onSent={onSent} />}
           </div>
         );
       })}

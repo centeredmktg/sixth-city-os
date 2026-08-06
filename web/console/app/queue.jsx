@@ -30,12 +30,22 @@ const MQ_CSS = `
   box-shadow:var(--shadow-sm); padding:15px 18px; margin-bottom:11px; transition:opacity var(--tap-transition);
   max-height:400px; }
 .mq-card--done{ opacity:.55; background:var(--surface-cream); }
-.mq-card--leaving{ opacity:0; transform:translateY(-6px); max-height:0; margin-bottom:0;
-  padding-top:0; padding-bottom:0; overflow:hidden;
-  transition:opacity .28s ease, transform .28s ease, max-height .4s ease,
-             margin .4s ease, padding .4s ease; }
+/* The compose panel renders as a sibling AFTER .mq-card, not inside it (so Compose can
+   toggle without remounting the card). On send both must collapse as one unit or the
+   panel detaches and slides on its own — the leaving flag lives on their shared wrapper
+   (.mq-row) and drives both children via the descendant rules below. */
+.mq-row--leaving{ pointer-events:none; opacity:0; transform:translateY(-6px);
+  transition:opacity .28s ease, transform .28s ease; }
+.mq-row--leaving .mq-card, .mq-row--leaving .mq-cp{ max-height:0; overflow:hidden;
+  margin-top:0; margin-bottom:0; padding-top:0; padding-bottom:0;
+  transition:max-height .4s ease, margin .4s ease, padding .4s ease; }
+/* .mq-cp (compose.jsx) has no numeric max-height at rest — "none" can't be
+   transitioned, so give it one here, scoped to Queue rows only, high enough that
+   a real (open, multi-contact) panel never gets clipped by it. */
+.mq-row .mq-cp{ max-height:2000px; }
 @media (prefers-reduced-motion: reduce){
-  .mq-card--leaving{ transition:none; }
+  .mq-row--leaving{ transition:none; }
+  .mq-row--leaving .mq-card, .mq-row--leaving .mq-cp{ transition:none; }
 }
 .mq-rank{ width:30px; height:30px; border-radius:50%; background:var(--ink-700); color:#fff; display:grid; place-items:center;
   font-family:var(--font-condensed); font-weight:800; font-size:14px; flex:none; }
@@ -70,9 +80,18 @@ function MorningQueue({ onConfirmed, onError }) {
   const [sentGone, setSentGone] = useStateQ({}); // domain -> true (unmounted)
 
   // Pending removal timers, so we can cancel them if the operator navigates away
-  // mid-animation instead of writing state into a detached component.
+  // mid-animation instead of writing state into a detached component. Each entry
+  // also carries its notify() so an unmount can still deliver it (see below) —
+  // clearTimeout alone would silently drop the refresh + toast, not just the
+  // local state write.
   const timersQ = useRefQ([]);
-  useEffectQ(() => () => timersQ.current.forEach(clearTimeout), []);
+  useEffectQ(() => () => {
+    // The child is on its way out, but onConfirmed is a prop owned by the still-
+    // mounted App — safe to call after this component unmounts, and it's the only
+    // thing that refreshes PE.STREAM and shows the toast. Only setSentGone (local
+    // state) is skipped; there's nothing left to update it on.
+    timersQ.current.forEach((t) => { clearTimeout(t.id); t.notify(); });
+  }, []);
 
   // Fires ONLY after the server confirmed {sent:true} — never on the click. Removal is
   // optimistic on that confirmation rather than on a /api/candidates round-trip, which
@@ -81,18 +100,19 @@ function MorningQueue({ onConfirmed, onError }) {
     setLeaving((l) => ({ ...l, [domain]: true }));
     const reduce = window.matchMedia
       && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const finish = () => {
-      setSentGone((g) => ({ ...g, [domain]: true }));
-      onConfirmed && onConfirmed(0, `Emailed ${contactEmail} at ${companyName} — cleared from your queue`);
-      PEQ.refresh();
-    };
-    if (reduce) { finish(); return; }
-    // Drop the id once it fires — otherwise the array just grows for the component's life.
+    // notify() is the shared-state side effect (refresh + toast via onConfirmed,
+    // which already calls P.refresh() in app.jsx) — it must run whether or not this
+    // component survives. settle() is purely local and only makes sense if it does.
+    const notify = () => onConfirmed && onConfirmed(0, `Emailed ${contactEmail} at ${companyName} — cleared from your queue`);
+    const settle = () => setSentGone((g) => ({ ...g, [domain]: true }));
+    if (reduce) { settle(); notify(); return; }
+    // Drop the entry once it fires — otherwise the array just grows for the component's life.
     const id = setTimeout(() => {
-      timersQ.current = timersQ.current.filter((t) => t !== id);
-      finish();
+      timersQ.current = timersQ.current.filter((t) => t.id !== id);
+      settle();
+      notify();
     }, 400);
-    timersQ.current.push(id);
+    timersQ.current.push({ id, notify });
   }
 
   // Today's worklist: net-new with a CONFIRMED in-market signal (actively running
@@ -177,9 +197,8 @@ function MorningQueue({ onConfirmed, onError }) {
             const WhyI = why ? (IcoQ[SIG_ICON_Q[why.kind]] || IcoQ.Zap) : IcoQ.Zap;
             const isDone = done[a.domain];
             return (
-              <React.Fragment key={a.domain}>
-              <div className={"mq-card" + (isDone ? " mq-card--done" : "")
-                             + (leaving[a.domain] ? " mq-card--leaving" : "")}>
+              <div key={a.domain} className={"mq-row" + (leaving[a.domain] ? " mq-row--leaving" : "")}>
+              <div className={"mq-card" + (isDone ? " mq-card--done" : "")}>
                 <div className="mq-rank">{i + 1}</div>
                 <div style={{ minWidth: 0 }}>
                   <div className="mq-nm"><PEQ.CompanyLink name={a.name} domain={a.domain} /></div>
@@ -202,7 +221,7 @@ function MorningQueue({ onConfirmed, onError }) {
               </div>
               {open[a.domain] && <PEQ.ComposePanel account={a} onError={onError}
                 onSent={(email) => onSent(a.domain, email, a.name)} />}
-              </React.Fragment>
+              </div>
             );
           })}
         </React.Fragment>
